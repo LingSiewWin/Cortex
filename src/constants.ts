@@ -60,6 +60,13 @@ export const ENTITY_TYPE = {
   LISTING: "listing",
   /** Decryption grant — emitted when a buyer pays the listing price. */
   GRANT: "grant",
+  /**
+   * Phase 13 — MMR state-root anchor. Payload = { rootHex, leafCount,
+   * triggerReason }. Excluded from the MMR itself (would cause infinite
+   * recursion). Verifier reads these to confirm an off-chain SQLite mirror
+   * matches the on-chain commitment.
+   */
+  STATE_ROOT: "state_root",
 } as const;
 
 export type EntityType = (typeof ENTITY_TYPE)[keyof typeof ENTITY_TYPE];
@@ -76,7 +83,7 @@ export const REINFORCEMENT = {
   initialWorkingSeconds: 60 * 60, // 1 hour
   workingReinforcementSeconds: 24 * 60 * 60, // 24 hours per citation
   episodicReinforcementSeconds: 7 * 24 * 60 * 60, // 7 days on promotion
-  semanticInitialSeconds: 365 * 24 * 60 * 60, // 1 year (fee-model defensive)
+  semanticInitialSeconds: 365 * 24 * 60 * 60, // 1 year expiration (fee-model defensive)
   /** Citations needed to promote working → episodic. */
   promoteToEpisodic: 2,
   /** Citations needed to trigger LLM distillation to semantic. */
@@ -88,11 +95,27 @@ export const REINFORCEMENT = {
 /**
  * Synaptic Market parameters. Pricing is illustrative for the demo — adjust based on
  * Arkiv's GLM fee resolution (currently unresolved per docs/Arkiv.md §3.1 Flaw 4).
+ *
+ * `contractAddress` reads from MARKET_CONTRACT_ADDRESS at module load. When the
+ * env var is missing we fall back to the zero address so the seeded agents can
+ * detect that and short-circuit to a no-op handle instead of trying to spend
+ * GLM into a sink. The demo runner should `deploy SynapticMarket.sol` and set
+ * MARKET_CONTRACT_ADDRESS=0x… in .env before starting the agents.
  */
+export const MARKET_ZERO_ADDRESS =
+  "0x0000000000000000000000000000000000000000" as const;
+
 export const MARKET = {
   defaultListingPriceWei: 5_000_000_000_000_000n, // 0.005 GLM equivalent (demo)
   /** Number of seeded competitor agents for the demo. */
   seededAgentCount: 3,
+  /**
+   * SynapticMarket Solidity escrow address. Set via MARKET_CONTRACT_ADDRESS
+   * env var; falls back to the zero address so the seeded agents can detect
+   * the "not deployed" state and idle gracefully.
+   */
+  contractAddress: ((process.env["MARKET_CONTRACT_ADDRESS"]?.toLowerCase() ??
+    MARKET_ZERO_ADDRESS) as `0x${string}`),
 } as const;
 
 /**
