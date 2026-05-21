@@ -1,0 +1,242 @@
+/**
+ * Cortex — Memory Constellation (Phase 15).
+ *
+ * Replaces the Memory Lifespan health-bar list with a thermodynamic
+ * visualization. The constellation reads as memory consolidation flowing
+ * from hot (orange, fast-decaying working memories) at the top zone, to
+ * promoted episodes in the middle, and frozen rules (blue) at the bottom.
+ *
+ * Each dot is a memory:
+ *   - Position is deterministic from a hash of the entityKey (so dots don't
+ *     jitter between polls).
+ *   - Opacity scales with `remainingRatio` so visible decay is automatic.
+ *   - Color: orange (working), lighter orange (episodic), blue (rule),
+ *     muted (other).
+ *   - Size scales by tier — rules biggest, working smallest.
+ *   - Glow: box-shadow of (size * 2) px in the dot's color.
+ *
+ * No physics, no animation loop — re-renders happen on the parent's poll
+ * cadence and dots just slide their opacity smoothly via CSS transition.
+ */
+
+import { useState } from "react";
+import type { MemorySummary } from "../types";
+import { tierLabel, truncateAddress, formatRemaining } from "../format";
+
+interface Props {
+  memories: MemorySummary[];
+  onInspect?: (memory: MemorySummary) => void;
+}
+
+// FNV-1a 32-bit hash — pure, deterministic, no deps.
+function hashKey(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+interface ZoneSpec {
+  tier: "working" | "episodic" | "rule";
+  label: string;
+  // Vertical layout in % of container.
+  top: number; // top edge of zone
+  height: number; // height of zone
+  color: string;
+  glowColor: string;
+  size: number; // dot diameter in px
+}
+
+const ZONES: ZoneSpec[] = [
+  {
+    tier: "working",
+    label: "WORKING · 1h",
+    top: 4,
+    height: 30,
+    color: "#ff5a00",
+    glowColor: "rgba(255, 90, 0, 0.55)",
+    size: 10,
+  },
+  {
+    tier: "episodic",
+    label: "EPISODIC · 7d",
+    top: 36,
+    height: 30,
+    color: "#ff8533",
+    glowColor: "rgba(255, 133, 51, 0.5)",
+    size: 14,
+  },
+  {
+    tier: "rule",
+    label: "RULE · 1y",
+    top: 68,
+    height: 28,
+    color: "#0055ff",
+    glowColor: "rgba(0, 85, 255, 0.65)",
+    size: 22,
+  },
+];
+
+interface PositionedDot {
+  memory: MemorySummary;
+  leftPct: number; // 0..100 within container
+  topPct: number; // 0..100 within container
+  size: number;
+  color: string;
+  glowColor: string;
+  opacity: number;
+  zoneLabel: string;
+}
+
+function placeDot(memory: MemorySummary, container: { x: [number, number] }): PositionedDot {
+  // Map tier → zone. "other" lands in the working zone tinted muted.
+  const zone =
+    memory.tier === "working"
+      ? ZONES[0]!
+      : memory.tier === "episodic"
+        ? ZONES[1]!
+        : memory.tier === "rule"
+          ? ZONES[2]!
+          : null;
+
+  const h = hashKey(memory.entityKey);
+  const hx = (h & 0xffff) / 0xffff; // 0..1
+  const hy = ((h >>> 16) & 0xffff) / 0xffff; // 0..1
+
+  // X jitter: spread across [xLeft, xRight] of the zone-content rail.
+  // The rail leaves room for the label on the left (8%) and right padding (4%).
+  const [xLeft, xRight] = container.x;
+  const leftPct = xLeft + hx * (xRight - xLeft);
+
+  if (!zone) {
+    // "other" → place in episodic band, muted color.
+    const z = ZONES[1]!;
+    const topPct = z.top + 4 + hy * (z.height - 8);
+    return {
+      memory,
+      leftPct,
+      topPct,
+      size: 8,
+      color: "#6b6b70",
+      glowColor: "rgba(107, 107, 112, 0.35)",
+      opacity: clamp(memory.remainingRatio, 0.15, 1),
+      zoneLabel: "other",
+    };
+  }
+
+  const topPct = zone.top + 4 + hy * (zone.height - 8);
+  return {
+    memory,
+    leftPct,
+    topPct,
+    size: zone.size,
+    color: zone.color,
+    glowColor: zone.glowColor,
+    opacity: clamp(memory.remainingRatio, 0.15, 1),
+    zoneLabel: zone.label,
+  };
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  if (!Number.isFinite(n)) return lo;
+  if (n < lo) return lo;
+  if (n > hi) return hi;
+  return n;
+}
+
+export function MemoryConstellation({ memories, onInspect }: Props) {
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+
+  if (memories.length === 0) {
+    return (
+      <div className="section">
+        <div className="section-title">Memory constellation</div>
+        <div className="card constellation-card">
+          <div className="constellation empty">
+            <div className="constellation-empty mono">
+              // no memories yet — <code>bun run demo-flow</code> to seed
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Layout rail: leave 14% on the left for the zone label, 4% right padding.
+  const dots = memories.map((m) => placeDot(m, { x: [16, 96] }));
+
+  return (
+    <div className="section">
+      <div className="section-title">Memory constellation</div>
+      <div className="card constellation-card">
+        <div className="constellation">
+          {ZONES.map((z) => (
+            <div
+              key={z.tier}
+              className={`constellation-zone constellation-zone-${z.tier}`}
+              style={{ top: `${z.top}%`, height: `${z.height}%` }}
+            >
+              <div className="constellation-zone-label mono">{z.label}</div>
+            </div>
+          ))}
+          {dots.map((d) => {
+            const isHover = hoverKey === d.memory.entityKey;
+            return (
+              <div
+                key={d.memory.entityKey}
+                className="constellation-dot"
+                style={{
+                  left: `${d.leftPct}%`,
+                  top: `${d.topPct}%`,
+                  width: d.size,
+                  height: d.size,
+                  background: d.color,
+                  opacity: d.opacity,
+                  boxShadow: `0 0 ${d.size * 2}px ${d.glowColor}`,
+                  cursor: onInspect ? "pointer" : "default",
+                  transform: isHover ? "translate(-50%, -50%) scale(1.4)" : "translate(-50%, -50%)",
+                }}
+                onMouseEnter={() => setHoverKey(d.memory.entityKey)}
+                onMouseLeave={() =>
+                  setHoverKey((cur) => (cur === d.memory.entityKey ? null : cur))
+                }
+                onClick={onInspect ? () => onInspect(d.memory) : undefined}
+                onKeyDown={
+                  onInspect
+                    ? (e) => {
+                        // Phase 15 a11y fix: keyboard parity with mouse —
+                        // Enter/Space activates the same inspector handler the
+                        // pointer onClick triggers. Without this, dots were
+                        // focusable but not activatable from the keyboard.
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onInspect(d.memory);
+                        }
+                      }
+                    : undefined
+                }
+                role={onInspect ? "button" : undefined}
+                tabIndex={onInspect ? 0 : -1}
+                aria-label={`${tierLabel(d.memory.tier)} ${truncateAddress(d.memory.entityKey)}`}
+              >
+                {isHover ? (
+                  <div className="constellation-tooltip">
+                    <div className="constellation-tooltip-key mono">
+                      {truncateAddress(d.memory.entityKey)}
+                    </div>
+                    <div className="constellation-tooltip-meta">
+                      {tierLabel(d.memory.tier)} ·{" "}
+                      {formatRemaining(d.memory.remainingSeconds)} left
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
