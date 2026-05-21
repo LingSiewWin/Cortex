@@ -33,17 +33,6 @@ bun run demo-flow          # scripted end-to-end demo
 - Identity: EIP-712 session keys + SIWE
 - Mirror: `bun:sqlite`, replayable via ERC-5169 `scriptURI`
 
-## Configuration
-
-| Env var | Required | What it does |
-|---|---|---|
-| `SESSION_KEY_PRIVATE_KEY` | yes | 32-byte hex. Ephemeral session-key EOA — all writes route through it. |
-| `USER_PRIMARY_ADDRESS`    | yes | Your primary EOA. Becomes `$owner` on tier promotion. |
-| `OPENAI_API_KEY`          | live recall only | Embedding provider — see `src/compression/embeddings.ts` to swap. |
-| `ANTHROPIC_API_KEY`       | distillation only | LLM that distills episodic memories into semantic rules. |
-| `ARKIV_RPC_HTTP`          | optional | Override default `https://braga.hoodi.arkiv.network/rpc`. |
-| `ARKIV_RPC_WS`            | optional | Override default `wss://braga.hoodi.arkiv.network/rpc/ws`. |
-
 ## Repo map (where to look when something breaks)
 
 | Path | What lives here |
