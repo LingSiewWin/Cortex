@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-05-21T17:13:44.879Z",
+  "provider": "cohere",
+  "corpusSize": 12,
+  "embedDim": 1536,
+  "packBytes": 198,
+  "selfRecallScores": [
+    1.0002,
+    0.9999,
+    1.0002,
+    0.9997,
+    1.0004,
+    1.0003,
+    1.0003,
+    0.9999,
+    1.0003,
+    0.9999,
+    1.0003,
+    1.0002
+  ],
+  "intraClusterMean": 0.3784,
+  "interClusterMean": 0.2069,
+  "cluster_gap_pass_count": 10,
+  "recall3OnQuery": {
+    "query": "cats and kittens",
+    "topKeys": [
+      "kittens love warm sunshine",
+      "the cat sat on the mat",
+      "feline rested on rug"
+    ]
+  },
+  "estimatorError": {
+    "rawCosine": 0.5435,
+    "rabitqEstimate": 0.5538,
+    "abs": 0.0103
+  },
+  "encodeTimesMs": [
+    0.34,
+    0.391,
+    0.198,
+    0.306,
+    0.135,
+    0.12,
+    0.191,
+    0.173,
+    0.096,
+    0.201,
+    0.209,
+    0.221
+  ]
+}
