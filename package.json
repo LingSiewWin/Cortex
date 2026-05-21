@@ -7,21 +7,27 @@
   "scripts": {
     "dev": "bun --hot ./index.ts",
     "test": "bun test",
+    "test:offline": "bun test tests/eip712.test.ts tests/session-key.test.ts tests/siwe.test.ts tests/rabitq.test.ts tests/darwinian-extend.test.ts tests/darwinian-citation.test.ts tests/dashboard.test.ts tests/market-publish.test.ts",
     "canary": "bun test tests/canary-atblock.test.ts",
     "smoke": "bun test tests/smoke-create-read.test.ts",
     "mirror": "bun --hot src/mirror/daemon.ts",
-    "agent": "bun --hot src/agent/orchestrator.ts",
+    "backfill": "bun scripts/backfill.ts",
     "dashboard": "bun --hot src/ui-server.ts",
-    "seed-demo": "bun scripts/seed-demo-agents.ts",
-    "faucet-check": "bun scripts/faucet-check.ts"
+    "demo-flow": "bun scripts/demo-flow.ts",
+    "faucet-check": "bun scripts/faucet-check.ts",
+    "mmr-bench": "bun scripts/mmr-bench.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@arkiv-network/sdk": "^0.6.8"
+    "@arkiv-network/sdk": "^0.6.8",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   }
 }
