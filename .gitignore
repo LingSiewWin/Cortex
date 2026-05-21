@@ -41,3 +41,9 @@ CLAUDE.md
 .cursor/
 .agents/
 info.md
+
+# Local SQLite mirror — never commit (ships personal observations + citations)
+cortex-mirror.sqlite
+cortex-mirror.sqlite-wal
+cortex-mirror.sqlite-shm
+cortex-mirror.test-*.sqlite*
