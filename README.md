@@ -1,17 +1,29 @@
 # Cortex
 
-> A Darwinian memory engine for AI agents on Arkiv.
-
-Built for the **Arkiv × ETHNS Builder Challenge**.
+> **Darwinian memory for AI agents** — thoughts that earn the right to survive,
+> with a cryptographic proof they happened. Sovereign by construction.
+> _(AI + Privacy hybrid · Arkiv × ETHNS Builder Challenge)_
 
 ## What it does
 
-Every agent observation is RaBitQ-compressed and written to Arkiv with a
-one-hour starting expiration. When the agent **cites** a memory in a
-decision, Cortex extends its lifespan. Useful memories grow, useless ones
-expire for free.
+Every agent observation is RaBitQ-compressed (1536-d → 198 bytes, ~31×) and
+written to Arkiv with a one-hour starting expiration. When the agent **cites**
+a memory in a decision, Cortex extends its lifespan via accumulative `extend`.
+Useful memories grow toward years; useless ones expire for free via Arkiv's
+L1Block sync. Every decision also appends to a Merkle Mountain Range whose root
+is **anchored on Arkiv**, so any verifier can prove a memory was in the agent's
+history.
 
 Two tools, period: `recall(query, k)` and `act(action, citations[])`.
+
+### The live spine
+
+`/console` isn't a static dashboard reading a database. An autonomous agent
+runs in the server process and cites memories every ~20s; every Arkiv RPC call,
+every RaBitQ encode, every MMR append, and every state-root anchor publishes a
+typed event onto an SSE stream that the dashboard renders in real time. Load
+the page and watch the chain work — query → recall → reinforce → anchor — with
+live Braga tx links, or type your own query to drive a cycle manually.
 
 ## Quick start
 
@@ -20,10 +32,15 @@ bun install
 cp .env.example .env       # fill SESSION_KEY_PRIVATE_KEY, USER_PRIMARY_ADDRESS
 
 bun run faucet-check       # pre-flight on Braga
-bun run smoke              # one-shot write + read
-bun run dashboard          # http://localhost:3000
+bun run seed               # seed demo memories the agent will cite
+bun run dashboard          # http://localhost:3000/console — watch the cascade
+bun run spine-check        # one-process proof: real Braga ops → live events
 bun run demo-flow          # scripted end-to-end demo
 ```
+
+> Seed **before** starting the dashboard: the autonomous loop and the seed
+> script share one session-key EOA, so running them concurrently collides on
+> tx nonces.
 
 ## Stack
 
@@ -63,6 +80,24 @@ Useful links:
 - Explorer: https://explorer.braga.hoodi.arkiv.network/
 - Faucet:   https://braga.hoodi.arkiv.network/faucet/
 - RPC:      `https://braga.hoodi.arkiv.network/rpc`
+
+## Security notes (read before a public deploy)
+
+The dashboard's write/control endpoints (`/api/citation/manual`, `/api/loop/control`)
+are **unauthenticated** for a frictionless local demo. They are gated by a
+process-scoped spend guard (`src/agent/spend-guard.ts`): a session cap +
+per-IP rate limit, shared by the autonomous loop and the manual path. The SSE
+endpoint caps concurrent connections (global + per-IP). Queries are clamped and
+control-stripped before being embedded / broadcast / written on-chain.
+
+For a **public deployment** (e.g. a judge URL), additionally:
+- Gate the write/control endpoints behind the existing SIWE viewer-session
+  cookie (the 6-ERC identity stack is already built — reuse `cortex_session`).
+- Fund the session key with a **minimal float** (e.g. 0.05 GLM) and never
+  auto-refill from a hot faucet — the spend cap resets on process restart.
+
+The autonomous loop runs server-side, so the ambient cascade demo works without
+any auth; only interactive writes need it.
 
 ## License
 
