@@ -47,3 +47,5 @@ cortex-mirror.sqlite
 cortex-mirror.sqlite-wal
 cortex-mirror.sqlite-shm
 cortex-mirror.test-*.sqlite*
+cortex-console.png
+.playwright-mcp/
