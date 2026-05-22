@@ -78,3 +78,70 @@ export interface WalletCapsView {
   paymasterService: boolean;
   sessionKeys: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Live Spine event types (Phase 16).
+//
+// Wire-compatible mirror of `src/lib/events.ts` DomainEvent. Kept here (not
+// imported from src/) so the frontend bundle never pulls the server-side
+// event bus / EventTarget singleton. Same convention as the wire types above.
+// ---------------------------------------------------------------------------
+
+export type ArkivRpcMethod =
+  | "getEntity"
+  | "mutateEntities"
+  | "extendEntity"
+  | "queryEntities";
+
+export type SpineTier = "working" | "episodic" | "rule";
+
+export type DomainEvent =
+  | {
+      type: "arkiv.rpc.call";
+      ts: number;
+      method: ArkivRpcMethod;
+      byteSize: number;
+      ms: number;
+      txHash?: string;
+      blockNumber?: number;
+      ok: boolean;
+      errorMessage?: string;
+    }
+  | { type: "rabitq.encoded"; ts: number; dim: number; bytes: number; ratio: number; ms: number }
+  | { type: "memory.created"; ts: number; entityKey: Hex; tier: SpineTier; expiresAtBlock: number }
+  | {
+      type: "memory.cited";
+      ts: number;
+      entityKey: Hex;
+      reinforcementSeconds: number;
+      promotedTo?: "episodic" | "rule";
+    }
+  | { type: "mmr.appended"; ts: number; leafIndex: number; leafHash: Hex; newRoot: Hex; leafCount: number }
+  | { type: "anchor.committed"; ts: number; rootHex: Hex; leafCount: number; txHash: string; blockNumber?: number }
+  | { type: "allowance.spent"; ts: number; wei: string; remainingWei: string; runwaySeconds: number }
+  | { type: "agent.loop.tick"; ts: number; query: string; queuedAt: number }
+  | { type: "recall.completed"; ts: number; query: string; candidateIds: Hex[]; selectedId: Hex | null };
+
+export type DomainEventType = DomainEvent["type"];
+
+export const ALL_EVENT_TYPES: DomainEventType[] = [
+  "arkiv.rpc.call",
+  "rabitq.encoded",
+  "memory.created",
+  "memory.cited",
+  "mmr.appended",
+  "anchor.committed",
+  "allowance.spent",
+  "agent.loop.tick",
+  "recall.completed",
+];
+
+/** Envelope as delivered over SSE — `id` is the server's monotonic seq. */
+export interface SpineEvent {
+  id: string;
+  type: DomainEventType;
+  event: DomainEvent;
+}
+
+/** Narrow a SpineEvent to a specific event type (type guard for consumers). */
+export type EventOf<T extends DomainEventType> = Extract<DomainEvent, { type: T }>;

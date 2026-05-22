@@ -19,9 +19,13 @@
  * cadence and dots just slide their opacity smoothly via CSS transition.
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MemorySummary } from "../types";
 import { tierLabel, truncateAddress, formatRemaining } from "../format";
+import { useSSE } from "../hooks/useSSE";
+
+/** How long a dot keeps its "just cited" glow after a memory.cited event. */
+const CITE_GLOW_MS = 2500;
 
 interface Props {
   memories: MemorySummary[];
@@ -149,6 +153,29 @@ function clamp(n: number, lo: number, hi: number): number {
 export function MemoryConstellation({ memories, onInspect }: Props) {
   const [hoverKey, setHoverKey] = useState<string | null>(null);
 
+  // Live cite glow: when act() reinforces a memory, memory.cited fires on the
+  // spine. We light that dot for CITE_GLOW_MS. A 500ms ticker re-renders so
+  // glows expire smoothly. Promotion (promotedTo) slides the dot to its new
+  // zone on the next parent poll — the CSS top/left transition tweens it.
+  const citedEvents = useSSE(["memory.cited"]);
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, []);
+  const recentlyCited = useMemo(() => {
+    const now = Date.now();
+    const m = new Set<string>();
+    for (const ev of citedEvents) {
+      if (ev.event.type === "memory.cited" && now - ev.event.ts < CITE_GLOW_MS) {
+        m.add(ev.event.entityKey);
+      }
+    }
+    return m;
+    // force is intentionally a dep so expired glows clear on the ticker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citedEvents, force]);
+
   if (memories.length === 0) {
     return (
       <div className="section">
@@ -183,20 +210,24 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
           ))}
           {dots.map((d) => {
             const isHover = hoverKey === d.memory.entityKey;
+            const isCited = recentlyCited.has(d.memory.entityKey);
+            const scale = isHover ? 1.4 : isCited ? 1.3 : 1;
             return (
               <div
                 key={d.memory.entityKey}
-                className="constellation-dot"
+                className={`constellation-dot${isCited ? " constellation-dot-cited" : ""}`}
                 style={{
                   left: `${d.leftPct}%`,
                   top: `${d.topPct}%`,
                   width: d.size,
                   height: d.size,
                   background: d.color,
-                  opacity: d.opacity,
-                  boxShadow: `0 0 ${d.size * 2}px ${d.glowColor}`,
+                  opacity: isCited ? 1 : d.opacity,
+                  boxShadow: isCited
+                    ? `0 0 ${d.size * 3.5}px ${d.glowColor}`
+                    : `0 0 ${d.size * 2}px ${d.glowColor}`,
                   cursor: onInspect ? "pointer" : "default",
-                  transform: isHover ? "translate(-50%, -50%) scale(1.4)" : "translate(-50%, -50%)",
+                  transform: `translate(-50%, -50%) scale(${scale})`,
                 }}
                 onMouseEnter={() => setHoverKey(d.memory.entityKey)}
                 onMouseLeave={() =>

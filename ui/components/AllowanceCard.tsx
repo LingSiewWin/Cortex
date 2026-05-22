@@ -23,9 +23,10 @@
  * `AllowanceSnapshot` JSON shape exported from `src/api/allowance.ts`.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatGlm, truncateAddress } from "../format";
-import type { Hex } from "../types";
+import type { Hex, EventOf } from "../types";
+import { useSSE } from "../hooks/useSSE";
 
 const REFRESH_MS = 5_000;
 
@@ -188,41 +189,14 @@ export function AllowanceCard({ sessionKey, master }: AllowanceCardProps) {
     };
   }, [sessionKey, load]);
 
-  // Stub actions for v1. The real refill flow is a fresh SessionAuthorizationV2
-  // signature; a future PR will land the SIWE-extended-with-budget signer here.
-  const onRefill = useCallback(() => {
-    // eslint-disable-next-line no-console
-    console.log(
-      "[AllowanceCard] Refill flow not wired in v1; sign a new SessionAuthorizationV2 with more budget.",
-    );
-  }, []);
-  const onPause = useCallback(() => {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[AllowanceCard] Pause flow stub — POST /api/allowance/refill with state='paused' in v2.",
-    );
-  }, []);
-
   // ---------------------------------------------------------------------------
-  // Empty state — no session key passed in
+  // Ambient state — no session key passed in. Instead of a dead CTA, show the
+  // autonomous agent's LIVE budget derived from the allowance.spent spine
+  // events (budget ≈ total spent + latest remaining). Meter ticks down in
+  // real time as the loop spends gas.
   // ---------------------------------------------------------------------------
   if (!sessionKey) {
-    return (
-      <div className="section">
-        <div className="section-title">Agent Allowance</div>
-        <div className="card allowance-card empty-allowance">
-          <div className="empty">
-            No active session allowance. Sign a SessionAuthorizationV2 to grant
-            an ephemeral agent a GLM budget + write cap.
-          </div>
-          <div className="budget-actions" style={{ justifyContent: "center" }}>
-            <button type="button" disabled title="Wire-up landing in v2">
-              Sign a session allowance
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <LiveAgentBudget />;
   }
 
   if (!loaded) {
@@ -346,24 +320,6 @@ export function AllowanceCard({ sessionKey, master }: AllowanceCardProps) {
           </div>
         </div>
 
-        <div className="budget-actions">
-          <button
-            type="button"
-            className="primary"
-            onClick={onRefill}
-            disabled={snapshot.state === "expired"}
-          >
-            Refill +{formatGlm(snapshot.maxGasWei)}
-          </button>
-          <button
-            type="button"
-            onClick={onPause}
-            disabled={snapshot.state !== "active"}
-          >
-            Pause Agent
-          </button>
-        </div>
-
         <div className="budget-row" style={{ marginTop: 14 }}>
           <span className="muted">Master</span>
           <span className="mono">
@@ -389,6 +345,102 @@ export function AllowanceCard({ sessionKey, master }: AllowanceCardProps) {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LiveAgentBudget — ambient view driven entirely by the spine.
+// ---------------------------------------------------------------------------
+
+function formatRunwayShort(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "—";
+  if (seconds < 90) return `${Math.round(seconds)}s runway`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m runway`;
+  return `${(seconds / 3600).toFixed(1)}h runway`;
+}
+
+function LiveAgentBudget() {
+  const spendEvents = useSSE(["allowance.spent"]);
+  const spends = useMemo(
+    () =>
+      spendEvents
+        .map((e) => e.event)
+        .filter((e): e is EventOf<"allowance.spent"> => e.type === "allowance.spent"),
+    [spendEvents],
+  );
+  const latest = spends.length > 0 ? spends[spends.length - 1]! : null;
+
+  const totalSpent = useMemo(
+    () => spends.reduce((acc, s) => acc + safeBigInt(s.wei), 0n),
+    [spends],
+  );
+  const remaining = latest ? safeBigInt(latest.remainingWei) : 0n;
+  const budget = totalSpent + remaining;
+  const pct = percentUsed(totalSpent, budget);
+  const recent = spends.slice(-12);
+  const maxWei = recent.reduce((m, s) => {
+    const w = safeBigInt(s.wei);
+    return w > m ? w : m;
+  }, 0n);
+
+  return (
+    <div className="section">
+      <div className="section-title">
+        Agent budget
+        <span className="tag good" style={{ marginLeft: 8 }}>
+          live
+        </span>
+      </div>
+      <div className="card allowance-card">
+        {!latest ? (
+          <div className="empty mono">
+            // autonomous agent idle — budget ticks down as it cites
+          </div>
+        ) : (
+          <>
+            <div className="budget-stats">
+              <div className="budget-row">
+                <span className="muted">Spent this session</span>
+                <span className="value mono">{formatGlm(totalSpent.toString())}</span>
+              </div>
+              <div className="budget-meter" aria-label={`${pct.toFixed(0)}% used`}>
+                <span className="budget-meter-fill" style={{ width: `${pct.toFixed(2)}%` }} />
+              </div>
+              <div className="budget-row">
+                <span className="muted">Remaining</span>
+                <span className="value mono">
+                  {formatGlm(remaining.toString())}{" "}
+                  <span className="muted" style={{ marginLeft: 8 }}>
+                    ({formatRunwayShort(latest.runwaySeconds)})
+                  </span>
+                </span>
+              </div>
+              <div className="budget-row">
+                <span className="muted">Acts</span>
+                <span className="mono">{spends.length.toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="budget-row" style={{ alignItems: "flex-end", marginTop: 12 }}>
+              <span className="muted">Recent cost / act</span>
+              <div className="spend-bars">
+                {recent.map((s, i) => {
+                  const w = safeBigInt(s.wei);
+                  const h = maxWei > 0n ? Math.max(8, Number((w * 100n) / maxWei)) : 12;
+                  return (
+                    <span
+                      key={i}
+                      className="spend-bar"
+                      style={{ height: `${h}%` }}
+                      title={formatGlm(s.wei)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

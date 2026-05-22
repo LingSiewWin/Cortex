@@ -25,9 +25,13 @@ import { RaBitQPlayground } from "./components/RaBitQPlayground";
 import { AllowanceCard } from "./components/AllowanceCard";
 import { ProofPlayground } from "./components/ProofPlayground";
 import { MemoryConstellation } from "./components/MemoryConstellation";
-import { AnchorPulse } from "./components/AnchorPulse";
 import { DecisionTimeline } from "./components/DecisionTimeline";
 import { DevModeToggle } from "./components/DevModeToggle";
+import { CitationWidget } from "./components/CitationWidget";
+import { AnchorPill } from "./components/AnchorPill";
+import { RPCTicker } from "./components/RPCTicker";
+import { RaBitQTile } from "./components/RaBitQTile";
+import { MMRTreePanel } from "./components/MMRTreePanel";
 import { formatGlm, truncateAddress } from "./format";
 import type {
   DecisionsResponse,
@@ -217,6 +221,7 @@ function App() {
           <span className="tag muted">Console</span>
         </div>
         <div className="topbar-right">
+          <AnchorPill />
           <DevModeToggle mode={mode} onToggle={onToggleMode} />
           <WalletConnect />
         </div>
@@ -230,21 +235,28 @@ function App() {
 
       {/* ============================================================
        *  AMBIENT — the narrative surface (always rendered)
+       *  Phase 16: the citation widget is the hero; the live spine
+       *  (RPC ticker, RaBitQ, MMR, agent budget) renders beneath it.
        * ============================================================ */}
 
-      <AnchorPulse />
+      <CitationWidget />
 
       <MemoryConstellation
         memories={recentMemories}
         onInspect={inspectMemory}
       />
 
+      <div className="spine-grid">
+        <RPCTicker />
+        <RaBitQTile />
+        <MMRTreePanel />
+        <AllowanceCard sessionKey={null} master={null} />
+      </div>
+
       <DecisionTimeline
         decisions={data.decisions?.decisions ?? []}
         onInspectCitation={inspect}
       />
-
-      <AllowanceCard sessionKey={null} master={null} />
 
       {/* Synaptic Market — keep visible in both modes */}
       <div className="section">
