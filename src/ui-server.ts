@@ -41,6 +41,13 @@ import {
   handleStateAnchorRequest,
   handleStateProofRequest,
 } from "./api/state";
+import { handleSSE } from "./api/sse";
+import { handleManualCitation } from "./api/citation";
+import {
+  startSingletonLoop,
+  handleLoopStatus,
+  handleLoopControl,
+} from "./agent/loop-singleton";
 import {
   listMirroredEntities,
   getMirroredEntity,
@@ -901,6 +908,23 @@ if (isEntry) {
       "/api/state/anchor": { POST: handleStateAnchorRequest },
       // Phase 13.5 — generate + server-verify an MMR inclusion proof
       "/api/state/proof": { POST: (req) => handleStateProofRequest(req) },
+      // Phase 16 — Live Spine SSE stream (the dashboard's event source)
+      "/sse": (req, server) => handleSSE(req, server),
+      // Phase 16 — manual "Cite" override (judge-typed query). Pass the client
+      // IP so the spend guard rate-limits per-IP, not globally.
+      "/api/citation/manual": {
+        POST: (req, server) =>
+          handleManualCitation(
+            req,
+            undefined,
+            server.requestIP(req)?.address ?? "unknown",
+          ),
+      },
+      // Phase 16 — autonomous loop control + status
+      "/api/loop/status": handleLoopStatus,
+      "/api/loop/control": { POST: (req) => handleLoopControl(req) },
+      // Silence the favicon 404 so a judge's DevTools console stays clean.
+      "/favicon.ico": () => new Response(null, { status: 204 }),
     },
     development: {
       hmr: true,
@@ -918,6 +942,28 @@ if (isEntry) {
   console.log(
     `[cortex/ui] ambient dashboard listening on http://localhost:${server.port}`,
   );
+
+  // Phase 16 — start the autonomous citation loop IN THIS PROCESS so its
+  // events reach the /sse stream. Kill-switch: CORTEX_AUTONOMOUS_LOOP=off.
+  // No-ops gracefully if the wallet isn't configured (read-only dashboard).
+  if (process.env.CORTEX_AUTONOMOUS_LOOP !== "off") {
+    try {
+      const loop = startSingletonLoop();
+      // eslint-disable-next-line no-console
+      console.log(
+        loop
+          ? `[cortex/ui] autonomous citation loop started (set CORTEX_AUTONOMOUS_LOOP=off to disable)`
+          : `[cortex/ui] autonomous loop NOT started — USER_PRIMARY_ADDRESS unset (read-only mode)`,
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[cortex/ui] autonomous loop failed to start: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 }
 
 // Re-export helpers for tests / CLI tooling.
