@@ -33,6 +33,7 @@ import {
   getPublicClient,
   getWalletClient,
   secondsUntilExpiry,
+  instrumentRpc,
 } from "../lib/arkiv-client.ts";
 import { withRetry } from "../lib/errors.ts";
 
@@ -53,7 +54,9 @@ export class EntityAlreadyExpiredError extends Error {
  * arg to `reinforce`.
  */
 async function fetchExpiresAtBlock(entityKey: Hex): Promise<bigint> {
-  const entity = await getPublicClient().getEntity(entityKey);
+  const entity = await instrumentRpc("getEntity", () =>
+    getPublicClient().getEntity(entityKey),
+  );
   const expiresAtBlock = entity.expiresAtBlock;
   if (expiresAtBlock === undefined) {
     throw new Error(
@@ -100,7 +103,11 @@ export async function reinforce(
     deps?.sendExtend ??
     (async (args) => {
       const wallet = getWalletClient();
-      return wallet.extendEntity(args);
+      return instrumentRpc(
+        "extendEntity",
+        () => wallet.extendEntity(args),
+        (r) => ({ txHash: r.txHash, byteSize: 32 }),
+      );
     });
 
   const expiresAtBlock = await getExpires(entityKey);
@@ -152,7 +159,11 @@ export async function reinforceBatch(
     deps?.sendMutate ??
     (async (args) => {
       const wallet = getWalletClient();
-      return wallet.mutateEntities(args);
+      return instrumentRpc(
+        "extendEntity",
+        () => wallet.mutateEntities(args),
+        (r) => ({ txHash: r.txHash, byteSize: args.extensions.length * 32 }),
+      );
     });
 
   const extensions: { entityKey: Hex; expiresIn: number }[] = [];

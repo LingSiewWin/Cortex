@@ -35,6 +35,7 @@ import { singleCreate } from "../lib/batch-writer.ts";
 import { REINFORCEMENT, ENTITY_TYPE } from "../constants.ts";
 import { appendToStateMMR } from "../mirror/state.ts";
 import { commitAndAnchor, type StateRootAnchorResult } from "../mirror/anchor.ts";
+import { publish } from "../lib/events.ts";
 
 export interface ActResult {
   action: string;
@@ -360,13 +361,37 @@ export async function act(opts: ActOptions): Promise<ActResult> {
   }
 
   // 3. Fire the accumulative extend batch.
+  let reinforceSucceeded = false;
   try {
     const txHash = await reinforce(reinforceItems);
     txHashes.push(txHash);
+    reinforceSucceeded = true;
   } catch (err) {
     console.warn(
       `act: reinforceBatch failed — ${err instanceof Error ? err.message : String(err)}`,
     );
+  }
+
+  // 3a. Live spine — one memory.cited per reinforced memory. Drives the
+  // Constellation glow + (on promotion) the zone tween. Only emitted when the
+  // reinforce actually landed, so the dashboard never animates a non-event.
+  if (reinforceSucceeded) {
+    const episodeSet = new Set<Hex>(promotionsToEpisode);
+    const semanticSet = new Set<Hex>(promotedToSemantic);
+    for (const item of reinforceItems) {
+      const promotedTo = semanticSet.has(item.entityKey)
+        ? ("rule" as const)
+        : episodeSet.has(item.entityKey)
+          ? ("episodic" as const)
+          : undefined;
+      publish({
+        type: "memory.cited",
+        ts: Date.now(),
+        entityKey: item.entityKey,
+        reinforcementSeconds: item.reinforcementSeconds,
+        ...(promotedTo ? { promotedTo } : {}),
+      });
+    }
   }
 
   // 4. Promote working → episodic (ownership transfer to user EOA).

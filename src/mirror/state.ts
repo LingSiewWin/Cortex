@@ -25,6 +25,7 @@ import {
   type StateRootRow,
 } from "./db";
 import { MMR } from "./mmr";
+import { publish } from "../lib/events";
 
 let _mmr: MMR | undefined;
 let _initPromise: Promise<MMR> | undefined;
@@ -71,11 +72,21 @@ export async function appendToStateMMR(payloadHashHex: Hex): Promise<{
     );
   }
   const { leafIndex } = mmr.append(bytes);
-  return {
+  const newRoot = mmr.getRootHex();
+  const leafCount = mmr.size();
+  // Emit on the live spine. We instrument HERE (the singleton wrapper) rather
+  // than MMR.append() so the pure data structure stays decoupled and the
+  // 10k-append bench (scripts/mmr-bench.ts, tests/mmr.test.ts) doesn't flood
+  // the bus.
+  publish({
+    type: "mmr.appended",
+    ts: Date.now(),
     leafIndex,
-    newRoot: mmr.getRootHex(),
-    leafCount: mmr.size(),
-  };
+    leafHash: payloadHashHex,
+    newRoot,
+    leafCount,
+  });
+  return { leafIndex, newRoot, leafCount };
 }
 
 /**

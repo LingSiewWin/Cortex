@@ -26,6 +26,7 @@ import { singleCreate } from "../lib/batch-writer";
 import { ENTITY_TYPE } from "../constants";
 import { initMirrorDb, listRecentStateRoots, markStateRootAnchored } from "./db";
 import { getStateMMR } from "./state";
+import { publish } from "../lib/events";
 
 export interface StateRootAnchorResult {
   rootHex: Hex;
@@ -116,6 +117,15 @@ export async function writeStateRootEntity(opts: {
     txHash: txHash as Hex,
     blockNumber: 0, // Phase 13.1 will look this up via tx receipt; not blocking
     entityKey: entityKey,
+  });
+
+  // Live spine — a fresh root was anchored on Arkiv. AnchorPill flashes on this.
+  publish({
+    type: "anchor.committed",
+    ts: Date.now(),
+    rootHex: opts.rootHex,
+    leafCount: opts.leafCount,
+    txHash,
   });
 
   return {

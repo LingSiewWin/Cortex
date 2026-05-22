@@ -27,6 +27,7 @@ import type {
 import type { Attribute } from "@arkiv-network/sdk/types";
 import { eq } from "@arkiv-network/sdk/query";
 import { PROJECT_ATTRIBUTE, BRAGA } from "../constants";
+import { publish, type ArkivRpcMethod } from "./events";
 
 // ---------------------------------------------------------------------------
 // Singletons
@@ -191,4 +192,58 @@ export async function secondsUntilExpiry(expiresAtBlock: bigint): Promise<number
   if (expiresAtBlock <= currentBlock) return 0;
   const blocksRemaining = Number(expiresAtBlock - currentBlock);
   return blocksRemaining * blockDuration;
+}
+
+// ---------------------------------------------------------------------------
+// Live Spine instrumentation (Phase 16)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap an Arkiv RPC call so it emits an `arkiv.rpc.call` event on the live
+ * spine — timing, byte size, tx hash. The dashboard's RPC ticker subscribes
+ * to these so a judge can watch chain activity in real time.
+ *
+ * Used only by the PRODUCTION default code paths (batch-writer, extend). Test
+ * code injects its own send/getEntity deps and never reaches this wrapper, so
+ * the 143-test suite stays silent.
+ *
+ * Emits on both success and failure (failures show as a red bar in the ticker).
+ * Never swallows the error — re-throws after recording.
+ */
+export async function instrumentRpc<T>(
+  method: ArkivRpcMethod,
+  fn: () => Promise<T>,
+  extract?: (result: T) => {
+    byteSize?: number;
+    txHash?: string;
+    blockNumber?: number;
+  },
+): Promise<T> {
+  const start = performance.now();
+  try {
+    const result = await fn();
+    const meta = extract?.(result) ?? {};
+    publish({
+      type: "arkiv.rpc.call",
+      ts: Date.now(),
+      method,
+      byteSize: meta.byteSize ?? 0,
+      ms: performance.now() - start,
+      ok: true,
+      ...(meta.txHash !== undefined ? { txHash: meta.txHash } : {}),
+      ...(meta.blockNumber !== undefined ? { blockNumber: meta.blockNumber } : {}),
+    });
+    return result;
+  } catch (err) {
+    publish({
+      type: "arkiv.rpc.call",
+      ts: Date.now(),
+      method,
+      byteSize: 0,
+      ms: performance.now() - start,
+      ok: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }

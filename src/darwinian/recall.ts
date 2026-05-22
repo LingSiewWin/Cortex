@@ -28,8 +28,9 @@ import { eq } from "@arkiv-network/sdk/query";
 import { bytesToHex } from "viem";
 import { cortexQuery } from "../lib/arkiv-client.ts";
 import { embedText } from "../compression/embeddings.ts";
-import { rabitqInnerProduct, unpackCode } from "../compression/rabitq.ts";
+import { rabitqInnerProduct, unpackCode, rabitqEncode, packCode } from "../compression/rabitq.ts";
 import { ENTITY_TYPE } from "../constants.ts";
+import { publish } from "../lib/events.ts";
 
 export interface MemoryHit {
   entityKey: Hex;
@@ -179,6 +180,25 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
   // Embed once. Rule scoring doesn't need the embedding, but we do it eagerly
   // because most candidates will be observation/episode in steady state.
   const queryEmbedding = await embed(opts.query);
+
+  // Live spine: the query is RaBitQ-encoded with the same 1-bit codec the
+  // corpus uses (we keep the raw embedding for full-precision scoring, but the
+  // encode is real). This keeps the RaBitQ tile live on every recall, not just
+  // on memory creation. Best-effort — never let instrumentation break recall.
+  try {
+    const t0 = performance.now();
+    const packed = packCode(rabitqEncode(queryEmbedding));
+    publish({
+      type: "rabitq.encoded",
+      ts: Date.now(),
+      dim: queryEmbedding.length,
+      bytes: packed.byteLength,
+      ratio: (queryEmbedding.length * 4) / packed.byteLength,
+      ms: performance.now() - t0,
+    });
+  } catch {
+    /* instrumentation only — ignore */
+  }
 
   const candidates = await fetchCandidates(opts.entityType);
 

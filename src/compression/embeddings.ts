@@ -11,6 +11,7 @@
  */
 
 import { packCode, rabitqEncode } from "./rabitq.ts";
+import { publish } from "../lib/events.ts";
 const COHERE_EMBED_URL = "https://api.cohere.com/v2/embed";
 const COHERE_MODEL = "embed-v4.0";
 const EMBED_DIM = 1536;
@@ -78,7 +79,19 @@ export async function embedAndQuantize(text: string): Promise<{
   rawEmbedding: Float32Array;
 }> {
   const rawEmbedding = await embedText(text);
+  // Time the compression step only (not the network embed) — this is the
+  // RaBitQ work the dashboard tile visualises.
+  const t0 = performance.now();
   const code = rabitqEncode(rawEmbedding);
   const bytes = packCode(code);
+  const ms = performance.now() - t0;
+  publish({
+    type: "rabitq.encoded",
+    ts: Date.now(),
+    dim: EMBED_DIM,
+    bytes: bytes.byteLength,
+    ratio: (EMBED_DIM * 4) / bytes.byteLength,
+    ms,
+  });
   return { bytes, rawEmbedding };
 }

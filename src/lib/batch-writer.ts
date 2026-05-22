@@ -15,8 +15,18 @@
 
 import type { Hex } from "@arkiv-network/sdk";
 import type { Attribute } from "@arkiv-network/sdk/types";
-import { stampProjectAttribute, getWalletClient } from "./arkiv-client";
+import { stampProjectAttribute, getWalletClient, instrumentRpc } from "./arkiv-client";
 import { withRetry } from "./errors";
+import { publish } from "./events";
+import { ENTITY_TYPE } from "../constants";
+
+/** Map a stamped `entityType` attribute to a Constellation tier (or undefined
+ *  for non-memory entities like citation / state_root / listing / grant). */
+const TIER_BY_ENTITY_TYPE: Record<string, "working" | "episodic" | "rule"> = {
+  [ENTITY_TYPE.OBSERVATION]: "working",
+  [ENTITY_TYPE.EPISODE]: "episodic",
+  [ENTITY_TYPE.RULE]: "rule",
+};
 
 /** A single create spec — caller-supplied. PROJECT_ATTRIBUTE is added for you. */
 export interface CortexCreate {
@@ -54,10 +64,35 @@ export async function batchCreate(items: CortexCreate[]): Promise<BatchCreateRes
     expiresIn: item.expiresInSeconds,
   }));
 
-  const result = await withRetry(
-    () => wallet.mutateEntities({ creates }),
-    { label: `batchCreate(n=${items.length})` },
+  const byteSize = items.reduce((acc, i) => acc + i.payload.byteLength, 0);
+  const result = await instrumentRpc(
+    "mutateEntities",
+    () =>
+      withRetry(() => wallet.mutateEntities({ creates }), {
+        label: `batchCreate(n=${items.length})`,
+      }),
+    (r) => ({ txHash: r.txHash, byteSize }),
   );
+
+  // Live spine — emit memory.created for each newly-created memory entity
+  // (observation/episode/rule). Non-memory writes (citation, state_root,
+  // listing, grant) are skipped so the Constellation only gets real dots.
+  // expiresAtBlock is 0 here (not known until the tx mines); the dashboard's
+  // /api/memories poll backfills the real value within one refresh cycle.
+  for (let i = 0; i < items.length; i++) {
+    const et = items[i]!.attributes.find((a) => a.key === "entityType")?.value;
+    const tier = typeof et === "string" ? TIER_BY_ENTITY_TYPE[et] : undefined;
+    const key = result.createdEntities[i];
+    if (tier && key) {
+      publish({
+        type: "memory.created",
+        ts: Date.now(),
+        entityKey: key,
+        tier,
+        expiresAtBlock: 0,
+      });
+    }
+  }
 
   return {
     txHash: result.txHash,
