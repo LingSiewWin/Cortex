@@ -16,6 +16,7 @@
     "demo-flow": "bun scripts/demo-flow.ts",
     "faucet-check": "bun scripts/faucet-check.ts",
     "mmr-bench": "bun scripts/mmr-bench.ts",
+    "utility-demo": "bun scripts/utility-demo.ts",
     "seed": "bun scripts/seed-memories.ts",
     "spine-check": "bun scripts/spine-check.ts",
     "distill-demo": "bun scripts/distill-demo.ts",

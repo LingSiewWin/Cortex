@@ -44,8 +44,81 @@ export async function initMirrorDb(path?: string): Promise<Database> {
   // payload but no hash. SQLite ALTER TABLE ADD COLUMN has no IF NOT EXISTS,
   // so we use PRAGMA table_info to detect.
   migrateAddPayloadHash(db);
+  migrateAddUtilityWeights(db);
   _db = db;
   return db;
+}
+
+/**
+ * SEDM-fusion migration: ensure the utility-weight columns exist on
+ * `citation_counts` for databases that predate the fusion. Idempotent.
+ */
+function migrateAddUtilityWeights(db: Database): void {
+  const cols = db.prepare("PRAGMA table_info(citation_counts)").all() as Array<{
+    name: string;
+  }>;
+  const have = new Set(cols.map((c) => c.name));
+  if (!have.has("weight")) {
+    db.exec("ALTER TABLE citation_counts ADD COLUMN weight REAL NOT NULL DEFAULT 1.0;");
+  }
+  if (!have.has("last_weight_ms")) {
+    db.exec("ALTER TABLE citation_counts ADD COLUMN last_weight_ms INTEGER;");
+  }
+  if (!have.has("audit_s")) {
+    db.exec("ALTER TABLE citation_counts ADD COLUMN audit_s REAL;");
+  }
+  if (!have.has("audit_epoch")) {
+    db.exec("ALTER TABLE citation_counts ADD COLUMN audit_epoch INTEGER;");
+  }
+}
+
+/**
+ * Read a memory's evolved utility weight. Returns `fallback` (default 1.0,
+ * recall-neutral) when the row doesn't exist yet.
+ */
+export function getMemoryWeight(
+  db: Database,
+  entityKey: string,
+  fallback = 1.0,
+): number {
+  const row = db
+    .prepare("SELECT weight FROM citation_counts WHERE entity_key = ?")
+    .get(entityKey) as { weight: number | null } | null;
+  if (!row || row.weight === null || !Number.isFinite(row.weight)) return fallback;
+  return row.weight;
+}
+
+/** Batch-read weights for many keys (recall hot path). Missing → fallback. */
+export function getMemoryWeights(
+  db: Database,
+  entityKeys: readonly string[],
+  fallback = 1.0,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (entityKeys.length === 0) return out;
+  const stmt = db.prepare("SELECT weight FROM citation_counts WHERE entity_key = ?");
+  for (const k of entityKeys) {
+    const row = stmt.get(k) as { weight: number | null } | null;
+    out.set(k, row && row.weight !== null && Number.isFinite(row.weight) ? row.weight : fallback);
+  }
+  return out;
+}
+
+/**
+ * Persist an evolved weight. Upserts the row so a never-cited memory can be
+ * weighted before its first citation_counts insert (defensive).
+ */
+export function setMemoryWeight(
+  db: Database,
+  entityKey: string,
+  weight: number,
+  nowMs: number,
+): void {
+  db.prepare(
+    "INSERT INTO citation_counts (entity_key, count, distinct_sessions, last_cited_ms, weight, last_weight_ms) " +
+      "VALUES (?, 0, 0, ?, ?, ?) " +
+      "ON CONFLICT(entity_key) DO UPDATE SET weight = excluded.weight, last_weight_ms = excluded.last_weight_ms",
+  ).run(entityKey, nowMs, weight, nowMs);
 }
 
 /**

@@ -27,12 +27,13 @@ import type { Database } from "bun:sqlite";
 import type { Hex } from "@arkiv-network/sdk";
 import { jsonToPayload, ExpirationTime } from "@arkiv-network/sdk/utils";
 import { keccak256, bytesToHex } from "viem";
-import { initMirrorDb, setPayloadHash } from "../mirror/db.ts";
+import { initMirrorDb, setPayloadHash, getMemoryWeight, setMemoryWeight } from "../mirror/db.ts";
 import { reinforceBatch, type ReinforceBatchDeps } from "./extend.ts";
 import { promoteOwnership } from "../lib/ownership.ts";
-import { getLastRecallIds } from "./recall.ts";
+import { getLastRecallIds, getLastRecallRanks, getLastRecallK } from "./recall.ts";
 import { singleCreate } from "../lib/batch-writer.ts";
-import { REINFORCEMENT, ENTITY_TYPE } from "../constants.ts";
+import { REINFORCEMENT, ENTITY_TYPE, UTILITY } from "../constants.ts";
+import { proxyUtility, evolveWeight, leaseSeconds } from "./utility.ts";
 import { appendToStateMMR } from "../mirror/state.ts";
 import { commitAndAnchor, type StateRootAnchorResult } from "../mirror/anchor.ts";
 import { publish } from "../lib/events.ts";
@@ -68,6 +69,11 @@ export interface ActOptions {
   userPrimaryEOA: Hex;
   /** Logical session id — used to track distinct sessions for semantic promotion. */
   sessionId?: string;
+  /**
+   * Optional outcome signal in [0,1] for the cited memories' utility (SEDM
+   * proxy). 1 = the decision succeeded, 0 = failed, omitted = unknown (0.5).
+   */
+  outcome?: number;
   /** Override seam for tests — see tests/darwinian-citation.test.ts. */
   _deps?: ActDeps;
 }
@@ -329,17 +335,47 @@ export async function act(opts: ActOptions): Promise<ActResult> {
   const promotionsToEpisode: Hex[] = [];
   const promotedToSemantic: Hex[] = [];
 
+  // SEDM-fusion inputs for the proxy utility (free — already in hand).
+  const recallRanks = getLastRecallRanks();
+  const recallK = getLastRecallK();
+  const citationCount = validCitations.length;
+
   for (const entityKey of validCitations) {
     const cachedType = entityTypeOf(entityKey);
+
+    // Capture PRIOR state BEFORE bump: established weight (drives this lease)
+    // + recency (drives the proxy utility for the NEXT lease).
+    const priorWeight = getMemoryWeight(db, entityKey, UTILITY.wInit);
+    const prevRow = db
+      .prepare("SELECT last_cited_ms FROM citation_counts WHERE entity_key = ?")
+      .get(entityKey) as { last_cited_ms: number } | null;
+    const nowMs = Date.now();
+    const msSinceLastCite = prevRow ? nowMs - prevRow.last_cited_ms : Infinity;
+
     const row = bumpCitationCount(db, entityKey, sessionId, cachedType);
     const tier =
       (row.entity_type as "observation" | "episode" | "rule" | null) ?? cachedType ?? "observation";
 
+    // SEDM proxy utility Û → evolve the weight for FUTURE leases/recall.
+    const uHat = proxyUtility({
+      msSinceLastCite,
+      citationCount,
+      rank: recallRanks.get(entityKey),
+      k: recallK > 0 ? recallK : 1,
+      ...(opts.outcome !== undefined ? { outcome: opts.outcome } : {}),
+    });
+    const nextWeight = evolveWeight(priorWeight, uHat, 1);
+    setMemoryWeight(db, entityKey, nextWeight, nowMs);
+
     // Rules are terminal — citing a rule extends it but doesn't promote it further.
-    const reinforcementSeconds =
+    // Base lease by tier, then scale by the memory's PRIOR (established) weight:
+    // a first/unproven citation (priorWeight = wInit) gets exactly base; proven
+    // memories earn longer leases.
+    const baseSeconds =
       tier === "episode" || row.promoted_to === "episode"
         ? REINFORCEMENT.episodicReinforcementSeconds
         : REINFORCEMENT.workingReinforcementSeconds;
+    const reinforcementSeconds = leaseSeconds(baseSeconds, priorWeight);
     reinforceItems.push({ entityKey, reinforcementSeconds });
 
     // Tier promotion gates.

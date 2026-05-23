@@ -93,6 +93,35 @@ export const REINFORCEMENT = {
 } as const;
 
 /**
+ * SEDM-fusion utility-weight parameters (docs/research/2026-05-23-sedm-fusion-design.md).
+ *
+ * The hot loop computes a free proxy utility Û(m) per citation, evolves a
+ * per-memory weight w via SEDM's update, scales the on-chain lease by w, and
+ * fuses w into recall ranking. Replaces the crude flat "+24h per citation".
+ *
+ *   Û(m) = sigRecency·r + sigCoCite·c + sigRank·g + sigOutcome·o   (∈ [0,1])
+ *   w_{t+1} = clamp(w_t + alpha·Û − beta·f_use, 0, wMax)
+ *   reinforcementSeconds = round(base · (1 + gamma·clamp(w)))
+ *   recallScore = rabitqInnerProduct · clamp(w, wMin, wMax)
+ */
+export const UTILITY = {
+  alpha: 0.6, // utility learning rate
+  beta: 0.1, // metabolic / anti-spam penalty per use
+  gamma: 0.5, // lease sensitivity to weight
+  wMax: 4.0, // weight ceiling (bounds lease growth → no fee runaway)
+  wMin: 0.2, // recall floor (cold-start memories still surface)
+  wInit: 1.0, // default weight for un-scored memories (recall-neutral)
+  recencyTauMs: 6 * 60 * 60 * 1000, // 6h recency decay constant
+  // Proxy-Û signal weights (sum to 1).
+  sigRecency: 0.3,
+  sigCoCite: 0.2,
+  sigRank: 0.2,
+  sigOutcome: 0.3,
+  /** Default outcome signal when act() carries no explicit success flag. */
+  defaultOutcome: 0.5,
+} as const;
+
+/**
  * Synaptic Market parameters. Pricing is illustrative for the demo — adjust based on
  * Arkiv's GLM fee resolution (currently unresolved per docs/Arkiv.md §3.1 Flaw 4).
  *

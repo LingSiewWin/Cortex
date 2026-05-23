@@ -29,8 +29,10 @@ import { bytesToHex } from "viem";
 import { cortexQuery } from "../lib/arkiv-client.ts";
 import { embedText } from "../compression/embeddings.ts";
 import { rabitqInnerProduct, unpackCode, rabitqEncode, packCode } from "../compression/rabitq.ts";
-import { ENTITY_TYPE } from "../constants.ts";
+import { ENTITY_TYPE, UTILITY } from "../constants.ts";
 import { publish } from "../lib/events.ts";
+import { recallWeightFactor } from "./utility.ts";
+import { initMirrorDb, getMemoryWeights } from "../mirror/db.ts";
 
 export interface MemoryHit {
   entityKey: Hex;
@@ -55,15 +57,31 @@ const RABITQ_PACK_SIZE = 198;
 // ---------------------------------------------------------------------------
 
 let _lastRecallIds: Set<Hex> = new Set();
+/** Rank (0 = top) of each key in the most recent recall — feeds the SEDM proxy utility. */
+let _lastRecallRanks: Map<Hex, number> = new Map();
+/** k (number of hits) of the most recent recall. */
+let _lastRecallK = 0;
 
 /** Set of entity keys returned by the most recent recall. Used by act() validation. */
 export function getLastRecallIds(): Set<Hex> {
   return new Set(_lastRecallIds);
 }
 
+/** Rank map (entityKey → 0-based rank) of the most recent recall. */
+export function getLastRecallRanks(): Map<Hex, number> {
+  return new Map(_lastRecallRanks);
+}
+
+/** k (hit count) of the most recent recall. */
+export function getLastRecallK(): number {
+  return _lastRecallK;
+}
+
 /** Test-only seam: clears the cache so test order doesn't leak state. */
 export function _resetLastRecallIds(): void {
   _lastRecallIds = new Set();
+  _lastRecallRanks = new Map();
+  _lastRecallK = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +176,8 @@ export interface RecallDeps {
   >;
   /** Substitute embedding call. */
   embedQuery?: (text: string) => Promise<Float32Array>;
+  /** Substitute the utility-weight lookup. Default: read the SQLite mirror. */
+  loadWeights?: (keys: Hex[]) => Promise<Map<Hex, number>>;
 }
 
 /**
@@ -255,10 +275,34 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
     });
   }
 
+  // SEDM-fusion: fuse the evolved utility weight into the score —
+  // s(q,m) = rabitqInnerProduct(q,code) · clamp(w, wMin, wMax). Defensive: any
+  // failure to load weights defaults to wInit (factor 1.0), so recall never
+  // breaks and behaves exactly as pre-fusion until utility data accrues.
+  const loadWeights =
+    opts._deps?.loadWeights ??
+    (async (keys: Hex[]) => {
+      try {
+        return getMemoryWeights(await initMirrorDb(), keys, UTILITY.wInit);
+      } catch {
+        return new Map<Hex, number>();
+      }
+    });
+  try {
+    const weights = await loadWeights(hits.map((h) => h.entityKey));
+    for (const h of hits) {
+      h.score *= recallWeightFactor(weights.get(h.entityKey) ?? UTILITY.wInit);
+    }
+  } catch {
+    /* weight fusion is best-effort — fall back to raw scores */
+  }
+
   hits.sort((a, b) => b.score - a.score);
   const top = hits.slice(0, k);
 
   _lastRecallIds = new Set(top.map((h) => h.entityKey));
+  _lastRecallRanks = new Map(top.map((h, i) => [h.entityKey, i]));
+  _lastRecallK = top.length;
   return top;
 }
 

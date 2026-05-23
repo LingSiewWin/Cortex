@@ -104,7 +104,14 @@ CREATE TABLE IF NOT EXISTS citation_counts (
   last_session_id   TEXT,
   last_cited_ms     INTEGER NOT NULL,
   entity_type       TEXT,           -- 'observation' | 'episode' | 'rule'
-  promoted_to       TEXT            -- NULL | 'episode' | 'rule'
+  promoted_to       TEXT,           -- NULL | 'episode' | 'rule'
+  -- SEDM-fusion utility weight (docs/research/2026-05-23-sedm-fusion-design.md).
+  -- `weight` = evolved per-memory utility, drives recall ranking + lease scaling.
+  -- `audit_s` / `audit_epoch` reserved for Phase B (verifiable on-chain audit).
+  weight            REAL NOT NULL DEFAULT 1.0,
+  last_weight_ms    INTEGER,
+  audit_s           REAL,
+  audit_epoch       INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_citation_counts_count    ON citation_counts(count);
