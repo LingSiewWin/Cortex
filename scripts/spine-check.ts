@@ -22,6 +22,7 @@ import { singleCreate } from "../src/lib/batch-writer";
 import { embedAndQuantize } from "../src/compression/embeddings";
 import { recall } from "../src/darwinian/recall";
 import { act } from "../src/darwinian/citation";
+import { drainOutbox } from "../src/agent/anchor-worker";
 import { getUserPrimaryEOA } from "../src/lib/arkiv-client";
 import { initMirrorDb } from "../src/mirror/db";
 import { ENTITY_TYPE, BRAGA } from "../src/constants";
@@ -73,11 +74,16 @@ async function main(): Promise<void> {
       userPrimaryEOA: getUserPrimaryEOA(),
       sessionId: "spine-check",
     });
-    console.log(`      citation entity ${result.citationEntityKey}`);
-    console.log(`      tx hashes:`);
-    for (const h of result.txHashes) console.log(`        ${explorerTx(h)}`);
-    if (result.stateRootAnchor) {
-      console.log(`      state root ${result.stateRootAnchor.rootHex}`);
+    console.log(`      queued ${result.status} (outbox #${result.outboxId})`);
+    // act() is optimistic — drain the outbox so the worker fires the on-chain
+    // sequence (memory.cited / mmr.appended / anchor.committed all emit here).
+    const drained = await drainOutbox(await initMirrorDb());
+    for (const r of drained) {
+      console.log(`      citation entity ${r.citationEntityKey}`);
+      console.log(`      tx hashes:`);
+      for (const h of r.txHashes) console.log(`        ${explorerTx(h)}`);
+      if (r.rootHex) console.log(`      state root ${r.rootHex}`);
+      if (!r.ok) console.log(`      ⚠ anchor failed: ${r.error}`);
     }
   } else {
     console.log("[3/3] SKIPPED — recall returned 0 hits (no Cortex memories on chain yet).");

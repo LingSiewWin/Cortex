@@ -49,3 +49,8 @@ cortex-mirror.sqlite-shm
 cortex-mirror.test-*.sqlite*
 cortex-console.png
 .playwright-mcp/
+
+# B4 ablation embedding cache (regenerable)
+scripts/eval/.embed-cache.json
+
+scripts/eval/.unkillable-log.jsonl

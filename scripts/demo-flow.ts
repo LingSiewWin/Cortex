@@ -38,6 +38,7 @@ import { rabitqEncode, packCode } from "../src/compression/rabitq";
 import { embedText } from "../src/compression/embeddings";
 import { recall } from "../src/darwinian/recall";
 import { act } from "../src/darwinian/citation";
+import { drainOutbox } from "../src/agent/anchor-worker";
 import { initMirrorDb } from "../src/mirror/db";
 import { BRAGA, ENTITY_TYPE } from "../src/constants";
 
@@ -253,9 +254,20 @@ async function main(): Promise<void> {
   console.log(`   citations   : ${actResult.citations.length} valid`);
   console.log(`   extended    : ${actResult.extendedKeys.length} memorie(s)`);
   console.log(`   promoted    : ${actResult.promotedKeys.length}`);
+  console.log(`   status      : ${actResult.status} (outbox #${actResult.outboxId})`);
 
-  for (let i = 0; i < actResult.txHashes.length; i++) {
-    console.log(fmtTxLine(`act tx #${i + 1}`, actResult.txHashes[i]!));
+  // act() is optimistic — the on-chain work is queued. Drain it now so the
+  // demo produces real Braga tx hashes (the dashboard worker does this on a
+  // cadence; here we force one pass).
+  const db = await initMirrorDb();
+  const drained = await drainOutbox(db);
+  const txHashes = drained.flatMap((r) => r.txHashes);
+  for (let i = 0; i < txHashes.length; i++) {
+    console.log(fmtTxLine(`anchor tx #${i + 1}`, txHashes[i]!));
+  }
+  const failed = drained.filter((r) => !r.ok);
+  if (failed.length > 0) {
+    console.warn(`   ⚠ ${failed.length} bundle(s) failed to anchor: ${failed[0]?.error}`);
   }
 
   // -- Summary -----------------------------------------------------------
@@ -265,8 +277,8 @@ async function main(): Promise<void> {
   for (const key of createResult.entityKeys) {
     console.log(`   ${key}`);
   }
-  console.log("\nReinforcement tx hashes:");
-  for (const tx of actResult.txHashes) {
+  console.log("\nAnchor tx hashes (drained from the outbox):");
+  for (const tx of txHashes) {
     console.log(`   ${tx}`);
   }
 

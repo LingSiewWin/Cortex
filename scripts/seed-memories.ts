@@ -12,7 +12,7 @@
  * Run:  bun run seed   (before  bun run dashboard)
  */
 
-import { batchCreate } from "../src/lib/batch-writer";
+import { createMemories } from "../src/lib/batch-writer";
 import { embedAndQuantize } from "../src/compression/embeddings";
 import { initMirrorDb } from "../src/mirror/db";
 import { ENTITY_TYPE, BRAGA } from "../src/constants";
@@ -74,9 +74,9 @@ async function main(): Promise<void> {
     });
   }
 
-  console.log("Writing batch to Braga…");
-  const result = await batchCreate(creates);
-  console.log(`\n✅ Seeded ${result.entityKeys.length} memories in 1 tx`);
+  console.log("Sealing + writing batch to Braga (wallet-encrypted at rest)…");
+  const result = await createMemories(creates);
+  console.log(`\n✅ Seeded ${result.entityKeys.length} sealed memories in 1 tx`);
   console.log(`   tx ${BRAGA.explorer}tx/${result.txHash}`);
   for (let i = 0; i < result.entityKeys.length; i++) {
     console.log(`   ${SEED_OBSERVATIONS[i]!.marker.padEnd(20)} ${result.entityKeys[i]}`);

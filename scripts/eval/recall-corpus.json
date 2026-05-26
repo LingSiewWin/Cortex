@@ -1,0 +1,281 @@
+{
+  "_provenance": "Verbatim chunks extracted from /docs (Arkiv.md, RabitQ.md, ERC.md, PHASES.md) by a corpus-builder subagent on 2026-05-25. Each gold/distractor is real project documentation text; trailing ' — <file> line N' markers are source citations stripped at load time. This is a REAL retrieval corpus (no synthetic/fabricated facts).",
+  "topics": [
+    {
+      "id": "chain-id",
+      "query": "What is the chain ID for the Braga testnet?",
+      "gold": "Chain ID: 60138453102",
+      "gold_source": "Arkiv.md:601",
+      "distractors": [
+        "Block time: 2 seconds",
+        "RPC: https://braga.hoodi.arkiv.network/rpc",
+        "Effective max btl approximately 272 years (u32 cap on btl and expiresAt, 2-second blocks).",
+        "Real CREATE gas cost: ~29,000 gas (flat, no per-byte-per-block scaling)"
+      ]
+    },
+    {
+      "id": "precompile-address",
+      "query": "What address is the Arkiv registry precompile deployed at on Braga?",
+      "gold": "The on-chain registry is a Rust precompile at 0x00000000000000000000000000000061726b6976 (\"arkiv\" in ASCII) running inside op-reth.",
+      "gold_source": "Arkiv.md:11",
+      "distractors": [
+        "0x4400000000000000000000000000000000000044 (claimed predeploy in op-reth code) has 0 bytes",
+        "0x4200000000000000000000000000000000000044 (OP-Stack convention) is 2,059 bytes, an uninitialized Proxy.sol that reverts every call with 'Proxy: implementation not initialized'",
+        "L1Block predeploy: 0x4200000000000000000000000000000000000015",
+        "to: 0x4200000000000000000000000000000000000015 (L1Block predeploy)"
+      ]
+    },
+    {
+      "id": "wire-format",
+      "query": "What calldata wire format does the Arkiv precompile accept?",
+      "gold": "Precompile accepts brotli-compressed RLP as calldata, not ABI.",
+      "gold_source": "Arkiv.md:41",
+      "distractors": [
+        "The SDK's src/utils/arkivTransactions.ts confirms: compress(toRlp([creates, updates, deletes, extensions, ownershipChanges])).",
+        "This is the legacy 'golembase' wire format — Arkiv was previously called Golem DB.",
+        "Every eth_call with standard ABI selectors returns errors like 'brotli: PADDING_2', 'brotli: RESERVED', 'brotli: unexpected EOF'.",
+        "Wire format is brotli(RLP([creates, updates, deletes, extensions, ownershipChanges])), not ABI calldata execute(Operation[]) with selector 0xba8ccf92"
+      ]
+    },
+    {
+      "id": "extend-replace-not-add",
+      "query": "Why does naively extending an entity's lease revert, and what makes extend REPLACE not ADD?",
+      "gold": "Contract: newExpiresAt = currentBlock + btl, must be strictly greater than c.expiresAt. Source: EntityRegistry.sol:350-368.",
+      "gold_source": "Arkiv.md:332",
+      "distractors": [
+        "requireExpiryIncreased(key, newExpiresAt, currentExpiresAt) reverts ExpiryNotExtended if newExpiresAt <= currentExpiresAt. This is what makes extend REPLACE-not-ADD.",
+        "If entity has 100 days left and you call extend(btl = 30 days), you lose the remaining 100 days — the new lease is just 30 days from now. You cannot stack leases. Each extension must beat the current expiry.",
+        "Extend is REPLACE not ADD, owner-only. newExpiresAt = currentBlock + btl, must be strictly greater than existingExpiresAt. Cannot stack leases. Cannot delegate.",
+        "requireActive(c) reverts if expired (expiresAt <= currentBlock). Strict-leq — entity is expired at exactly its expiresAt block."
+      ]
+    },
+    {
+      "id": "atblock-broken",
+      "query": "Can I recall expired entities using a historical atBlock query on Braga?",
+      "gold": "The server silently ignores the atBlock parameter. This may be unimplemented rather than buggy — but either way, the public API does not support historical recall today.",
+      "gold_source": "Arkiv.md:91",
+      "distractors": [
+        "The SDK exposes validAtBlock(N: bigint) on the query builder.",
+        "query.validAtBlock(N) builder exists and serializes correctly — but server ignores it.",
+        "TestHistoricalQueries covers explicit-delete-then-query-at-past-block (works in tests, ignored on live Braga).",
+        "Test with atBlock = 0xFFFFFFFF (future) returns 'context cancelled'"
+      ]
+    },
+    {
+      "id": "expire-system-driven",
+      "query": "Who actually triggers EXPIRE events on Braga in practice?",
+      "gold": "Every observed EXPIRE on Braga came from the OP-Stack system depositor (0xdead...0001) via the L1Block sync path — not from third-party callers. The 'anyone can call EXPIRE for free permanence' loophole does not exist in practice.",
+      "gold_source": "Arkiv.md:15",
+      "distractors": [
+        "The Arkiv precompile is hooked into the L1Block sync transaction. When each L2 block updates its L1 reference, the precompile sweeps any expired entities as a side effect. No user has ever called EXPIRE on Braga.",
+        "processExpire is just a synonym for delete (store/ops.go:254-258)",
+        "ExpiryLifecycle.t.sol::test_nonOwnerCanExpire confirms EXPIRE has no owner check",
+        "The system depositor sweeps expired entities every L1Block update. You don't need to build a 'garbage collector' — the chain has one."
+      ]
+    },
+    {
+      "id": "max-btl-ceiling",
+      "query": "What is the maximum lifespan an Arkiv entity can have, and why?",
+      "gold": "Effective max btl approximately 272 years (u32 cap on btl and expiresAt, 2-second blocks). No MAX_BTL guard anywhere — only Solidity 0.8 checked-arithmetic overflow on currentBlock + btl. No SDK validates upper bound.",
+      "gold_source": "Arkiv.md:19",
+      "distractors": [
+        "BlockNumber32 = uint32. Comment: 'uint32 overflows at block ~4.3 billion — ~272 years at 2s blocks, ~136 years at 1s blocks (L2). Sufficient for any foreseeable chain.'",
+        "No upper-bound validation. fromYears(270) succeeds; fromYears(300) overflows the u32 wire encoding.",
+        "u32 overflow at ~272 years is far beyond any product timeline. The architectural cap is not a real constraint.",
+        "requirePositiveBtl(btl) reverts ZeroBtl if btl == 0. Only btl check in the entire system."
+      ]
+    },
+    {
+      "id": "create-gas-cost",
+      "query": "How much does it cost to create an entity on Arkiv Braga, and is there a storage fee?",
+      "gold": "CREATEs cost ~29,000 gas flat. No per-byte-per-block storage fee. Until the fee model lands, you can be generous with your hot tier. Long btls are free.",
+      "gold_source": "Arkiv.md:390",
+      "distractors": [
+        "There is no fee model. Storage-service architecture doc section 9 says 'Status: unresolved.' CREATEs cost ~29k gas flat.",
+        "Real CREATE gas cost: ~29,000 gas (flat, no per-byte-per-block scaling)",
+        "The legacy spec entity-registry-spec.md describes pricePerBytePerBlock x bytes x btl paid in GLM via transferFrom — but this code is not in the deployed contract.",
+        "Fee model pricePerBytePerBlock x bytes x btl paid in GLM via transferFrom is not implemented; CREATE is flat ~29k gas"
+      ]
+    },
+    {
+      "id": "rabitq-compression-ratio",
+      "query": "What compression ratio does 1-bit RaBitQ achieve on float32 embeddings?",
+      "gold": "fp32 to 1 bit/dim = 32x raw compression.",
+      "gold_source": "RabitQ.md:80",
+      "distractors": [
+        "Per-vector overhead: residual norm (fp16, 2 B) + factor (fp16, 2 B) + centroid id (already in IVF). At D = 1024: 128 + 4 = 132 B vs 4096 B = ~31x effective.",
+        "1-bit per dim, ~32x compression, 95%+ recall with SQ8 refine.",
+        "1-bit RaBitQ at 768-d compresses 32x at ~94% recall, ~95-99% with SQ8 refine.",
+        "1:32 compression (fp32 to 1 bit)"
+      ]
+    },
+    {
+      "id": "rabitq-error-bound",
+      "query": "What is RaBitQ's theoretical error bound and why is it better than PQ?",
+      "gold": "RaBitQ's headline contribution is an unbiased estimator of inner-product / squared L2 with a sharp, distribution-free error bound of order O(1/sqrt(D)), while matching or beating PQ in practice.",
+      "gold_source": "RabitQ.md:31",
+      "distractors": [
+        "The dominant prior art — Product Quantization (PQ) and its variants (OPQ, ScaNN's anisotropic PQ) — has no theoretical error bound. Errors are data-dependent and unpredictable, especially on out-of-distribution queries.",
+        "Asymptotic optimality. Error decays as O(2^(-B) / sqrt(D)), matching the information-theoretic lower bound for B-bit codes on the unit sphere.",
+        "The O(1/sqrt(D)) rate is asymptotically optimal for any D-bit code (matches the Alon-Klartag FOCS 2017 lower bound for the geometric problem).",
+        "LSH (sign random projections) is 1-bit, O(1/sqrt(D)) for cosine, popcount(XOR), unbiased but worse constants than RaBitQ"
+      ]
+    },
+    {
+      "id": "rabitq-random-rotation",
+      "query": "Why does RaBitQ apply a random rotation before quantizing?",
+      "gold": "After rotation, the quantization residual of any data vector behaves like that of a uniformly random unit vector. The error becomes a function of dimension only, not of data distribution.",
+      "gold_source": "RabitQ.md:55",
+      "distractors": [
+        "Before quantizing, apply a uniformly random orthogonal matrix P (sampled once, shared dataset-wide)",
+        "In practice P is implemented as a Fast Hadamard Transform (FHT, O(D log D)) rather than a dense DxD matmul.",
+        "P is a Johnson-Lindenstrauss-style isometry: preserves L2 norm and inner product exactly, but randomizes the alignment between data and codebook.",
+        "K outlier channels. Rotation actually helps — it spreads outliers across channels (same reason QuaRot/SpinQuant use Hadamard rotations)."
+      ]
+    },
+    {
+      "id": "rabitq-kv-cache-fit",
+      "query": "Can I use the NTU RaBitQ library directly for KV cache compression?",
+      "gold": "KV cache compression (compressing the per-layer K/V tensors that attention reads each token) is Tier B — RaBitQ-the-idea fits; RaBitQ-the-library does not.",
+      "gold_source": "RabitQ.md:15",
+      "distractors": [
+        "Built for static IVF/HNSW indexes, not [B, H, T, d_head] streaming tensors that grow every decoded token.",
+        "No GPU attention kernel — FastScan is CPU-SIMD.",
+        "Memory / retrieval layer is Tier A, ship it",
+        "Model weight compression is Tier C — wrong tool. Use GPTQ / AWQ / SpinQuant / QuaRot."
+      ]
+    },
+    {
+      "id": "erc-stack-count",
+      "query": "How many ERCs are in Cortex's final ship-now stack and which are they?",
+      "gold": "After 4 specialist briefs + red-team adversarial review, the ship list collapses from 15+ proposed standards to six.",
+      "gold_source": "ERC.md:12",
+      "distractors": [
+        "Explicitly dead (cut for concrete technical reasons, not aesthetics): ERC-7857, ERC-6551, ERC-2535 (Diamonds), ERC-4337, ERC-7702 (until Braga tx-type-4 is verified), ERC-2771, ERC-7715/7710, ERC-8001, ERC-8183, ERC-7683.",
+        "Total ERC-touching budget: ~10 person-days (excluding the relayer service and SQLite daemon, which are application code, not ERC integration).",
+        "The convergent picks across multiple agents that survived: EIP-712, ERC-1271, ERC-6492, ERC-4361 (SIWE).",
+        "Corpus: /docs/ERC/erc-knowledge-base/ — 583 ERCs indexed"
+      ]
+    },
+    {
+      "id": "erc-5169-scripturi",
+      "query": "What role does ERC-5169 scriptURI play in Cortex's sovereignty story?",
+      "gold": "The SynapseAgentRegistry contract publishes scriptURI = ['ipfs://...synapse-mirror.js', 'https://github.com/.../synapse-mirror.js'] pointing to the SQLite-mirror replay logic.",
+      "gold_source": "ERC.md:159",
+      "distractors": [
+        "ERC-5169 (Final, TokenScript ecosystem) lets a contract publish URIs to a client-side replay script.",
+        "ERC-5169 turns our SQLite-mirror script into a chain-native recovery artifact, which is the sovereignty pitch made concrete.",
+        "The pitch's Pillar 4 is the local SQLite event mirror — the 'data sovereignty' story.",
+        "ERC-5169 (scriptURI), Final: Tiny Synapse registry points at the SQLite-mirror replay script — chain-native sovereignty proof"
+      ]
+    },
+    {
+      "id": "erc-7857-dead",
+      "query": "Why was ERC-7857 (AI Agents NFT with private metadata) cut from the stack?",
+      "gold": "Every transfer path requires a TransferValidityProof validated by a TEE oracle or ZK verifier configured per AttestationConfig[]. No such oracle exists on Arkiv Braga.",
+      "gold_source": "ERC.md:209",
+      "distractors": [
+        "DEAD: Requires TransferValidityProof[] via TEE oracle; no TEE oracle deployed on Braga; stub verifier is a credibility liability",
+        "Shipping with a stub verifier that always returns true is worse than not shipping the ERC at all — any judge familiar with 7857 will see through it instantly. Cut.",
+        "ERC-6551: Smart-contract account can't speak brotli-RLP to the precompile; transferable-mind story isn't in the pitch",
+        "Additionally: ERC-7857 conflates agent identity (which ERC-8004 already does) with encrypted metadata transfer (which Synapse doesn't need — Arkiv attributes are public-by-default and queryable, that's the point)."
+      ]
+    },
+    {
+      "id": "erc-8004-event-shape",
+      "query": "How does Cortex use ERC-8004 — as a dependency or something else?",
+      "gold": "The resolution: mimic the event shape, take no hard dependency.",
+      "gold_source": "ERC.md:168",
+      "distractors": [
+        "A 50-line SynapseAgentRegistry.sol (Ownable, no proxy) emits these events with this exact shape",
+        "Why this works: if ERC-8004 wins, the events already match — any 8004 indexer reads Synapse for free. If competing ERC-8122 wins, swap the registry implementation; events are cheap.",
+        "Risk: ERC-8004 is 9 months old, Draft, with a competing draft (ERC-8122 by Prem Makeig, created 2025-12-17). Two competing drafts is not a converged ecosystem.",
+        "ERC-8004 event-shape mimicry (not dependency), Draft: Emit Registered/MetadataSet events from a 50-line custom registry — forward-compatible if 8004 wins, free to swap if 8122 wins"
+      ]
+    },
+    {
+      "id": "erc-5792-capability-probe",
+      "query": "What does ERC-5792 wallet_getCapabilities let the dapp do?",
+      "gold": "wallet_getCapabilities lets the dapp probe what the user's wallet actually supports — atomic batch, paymaster sponsorship, session-key issuance — and degrade gracefully.",
+      "gold_source": "ERC.md:128",
+      "distractors": [
+        "ERC-1271 (Final, universal smart-wallet adoption) handles smart-contract signers; ERC-6492 (Final) handles counterfactual smart wallets that haven't been deployed yet",
+        "The novelty in the stack is pairing it with ERC-5267 (eip712Domain()), Final since 2022, so wallets and downstream tools can discover Synapse's domain",
+        "ERC-5792 (wallet_sendCalls / getCapabilities), Final: Feature-detect what user's wallet can batch/sponsor; degrade gracefully",
+        "The red-team agent flagged this as the single most-important ERC that all four specialists missed."
+      ]
+    },
+    {
+      "id": "tier-promotion-thresholds",
+      "query": "What citation thresholds promote a memory from working to episodic to semantic?",
+      "gold": "Promotion thresholds: working to episodic at 2 citations, episodic to semantic at 5 citations across 3 distinct sessions",
+      "gold_source": "PHASES.md:156",
+      "distractors": [
+        "Initial working-tier lifespan: 1 hour (was 6h originally — shortened for fee-model defense)",
+        "Semantic-tier lifespan: 1 year (was 5y — same reason)",
+        "Reinforcement: +24h per citation, accumulative not REPLACE",
+        "Citation must validate against last recall set (getLastRecallIds()) — drops hallucinated cites"
+      ]
+    },
+    {
+      "id": "encryption-at-rest",
+      "query": "How does Cortex keep memories encrypted at rest while still allowing recall?",
+      "gold": "Design decision: decrypt-at-recall (NOT in the daemon) so the mirror is ciphertext-at-rest too (laptop theft is not a memory leak), daemon + MMR untouched (payload_hash over on-chain ciphertext is key-independent — a no-key daemon still anchors correctly), and the wallet is load-bearing exactly where the negative control needs it.",
+      "gold_source": "PHASES.md:752",
+      "distractors": [
+        "src/lib/payload-key.ts (NEW) — memoized wallet-derived AES key from CORTEX_USER_SIGNATURE",
+        "src/lib/crypto.ts — HKDF-derived AES-256-GCM keys from user wallet signature",
+        "src/constants.ts — SEALED_CONTENT_TYPE = 'application/x-cortex-sealed'.",
+        "src/lib/batch-writer.ts — createMemory/createMemories seal RaBitQ/rule bytes + stamp SEALED_CONTENT_TYPE. Non-memory writes (citation/state_root/market) stay plaintext."
+      ]
+    },
+    {
+      "id": "mmr-set-inclusion",
+      "query": "What does the Cortex MMR accumulator actually commit to?",
+      "gold": "MMR commits to set inclusion, NOT nearest-neighbor (KZG vector commitments deferred to v2)",
+      "gold_source": "PHASES.md:327",
+      "distractors": [
+        "State accumulator that turns Arkiv from 'raw memory storage' into 'verifiable state registry'. Local MMR singleton built from SQLite on boot; appended on every hydrate.",
+        "Hash function: keccak256 (matches EVM precompile + future Arkiv anchors)",
+        "Every act() decision now broadcasts the current MMR root to Arkiv as a state_root entity — one cheap commitment per agent decision, regardless of how many memories changed.",
+        "Trustless KNN (KZG vector commitments) is deferred — MMR commits to set inclusion only"
+      ]
+    },
+    {
+      "id": "ownership-creator-vs-owner",
+      "query": "How does Cortex split entity ownership between session key and user wallet?",
+      "gold": "Hierarchical ownership: creator = sessionKey, owner = userEOA",
+      "gold_source": "PHASES.md:33",
+      "distractors": [
+        "src/lib/ownership.ts — promoteOwnership for tier-promotion ownership transfer",
+        "cortexQuery({createdBy: SESSION_KEY}) is the trusted-read pattern (arkiv-best-practices section 12)",
+        "v1 trust model: backend relayer holds session-key EOA, bounded by SessionAuthorization",
+        "If transferability is ever needed, the right primitive is Arkiv's native TRANSFER op (op code 4 in arkiv-contracts/src/lib.rs) — change ownership of the entity directly."
+      ]
+    },
+    {
+      "id": "rabitq-pack-bytes",
+      "query": "How many bytes does Cortex use to store one compressed 1536-d embedding?",
+      "gold": "1-bit Rotational Quantization. The math pillar — 1536-d float32 embeddings compressed to 198 bytes per memory (31x compression ratio).",
+      "gold_source": "PHASES.md:97",
+      "distractors": [
+        "198-byte pack: 192 sign bytes + 2 norm fp16 + 2 align fp16 + 2 reserved (centroid u16)",
+        "Pad input to 2048-d before Hadamard rotation (deterministic), quantize first 1536 dims",
+        "RaBitQ tile 1536d to 198B 31x",
+        "Self-recall scores: 0.9998 - 1.0002 (essentially 1.0 for unit vectors)"
+      ]
+    },
+    {
+      "id": "no-contract-deploy-braga",
+      "query": "Can I deploy a custom Solidity escrow contract on Braga for the memory market?",
+      "gold": "Conclusion: Braga's public RPC only admits transactions directed at the Arkiv precompile. General EVM deployment (and even ordinary transfers) are not exposed.",
+      "gold_source": "Arkiv.md:692",
+      "distractors": [
+        "Every eth_sendRawTransaction for a non-precompile tx is rejected with -32602 'Missing or invalid parameters'",
+        "The on-chain memory market cannot be built on Braga — there is no contract to deploy escrow (ERC-8183) or SynapticMarket.sol into. contracts/*.sol in this repo are aspirational.",
+        "eth_estimateGas works even for contract creation (56132) — the op-reth EVM will simulate a deploy. So the limit is not the EVM engine.",
+        "Yet SDK mutateEntities lands every time — because it always sends to the Arkiv precompile ARKIV_ADDRESS with value: 0n + brotli-RLP data"
+      ]
+    }
+  ]
+}
