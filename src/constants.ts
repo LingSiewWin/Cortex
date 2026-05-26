@@ -72,6 +72,19 @@ export const ENTITY_TYPE = {
 export type EntityType = (typeof ENTITY_TYPE)[keyof typeof ENTITY_TYPE];
 
 /**
+ * Content-type discriminator for memory payloads sealed with the wallet-derived
+ * key (see `src/lib/crypto.ts` + `src/lib/payload-key.ts`). Memories
+ * (observation/episode/rule) are encrypted client-side before being written to
+ * Arkiv — the chain (and the local mirror) hold ciphertext; recall decrypts in
+ * RAM with the user's wallet key. Recall keys off this contentType to decide
+ * whether to `openPayload` before decoding. The `entityType` *attribute* (not
+ * the contentType) remains the type-of-record. Non-memory writes (citation,
+ * state_root, market listing/grant) keep their own contentTypes and are NOT
+ * sealed here.
+ */
+export const SEALED_CONTENT_TYPE = "application/x-cortex-sealed";
+
+/**
  * Reinforcement parameters for the Darwinian engine. Per CLAUDE.md "Accumulative extend":
  *   new_btl_seconds = remaining_seconds + REINFORCEMENT_SECONDS
  *

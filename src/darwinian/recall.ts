@@ -24,15 +24,16 @@
  */
 
 import type { Hex } from "@arkiv-network/sdk";
-import { eq } from "@arkiv-network/sdk/query";
 import { bytesToHex } from "viem";
-import { cortexQuery } from "../lib/arkiv-client.ts";
 import { embedText } from "../compression/embeddings.ts";
 import { rabitqInnerProduct, unpackCode, rabitqEncode, packCode } from "../compression/rabitq.ts";
-import { ENTITY_TYPE, UTILITY } from "../constants.ts";
+import { ENTITY_TYPE, SEALED_CONTENT_TYPE, UTILITY } from "../constants.ts";
 import { publish } from "../lib/events.ts";
+import { openPayload } from "../lib/crypto.ts";
+import { getPayloadKey } from "../lib/payload-key.ts";
 import { recallWeightFactor } from "./utility.ts";
 import { initMirrorDb, getMemoryWeights } from "../mirror/db.ts";
+import { listMirroredEntities } from "../mirror/replay.ts";
 
 export interface MemoryHit {
   entityKey: Hex;
@@ -164,16 +165,20 @@ export interface RecallOptions {
  * Optional seam for tests — substitutes the Arkiv read and the embedding call
  * so we can validate scoring without touching Braga or OpenAI.
  */
+/** A scored-candidate row as produced by the candidate fetcher. */
+export interface RecallCandidate {
+  key: Hex;
+  payload: Uint8Array | undefined;
+  attributes: { key: string; value: string | number }[];
+  expiresAtBlock: bigint | undefined;
+  /** Sealed payloads carry SEALED_CONTENT_TYPE; recall opens them before decoding.
+   *  Absent/null ⇒ treat as plaintext (legacy + test injections). */
+  contentType?: string | null;
+}
+
 export interface RecallDeps {
   /** Substitute Arkiv read. Should already filter by PROJECT_ATTRIBUTE + entityType. */
-  fetchCandidates?: (entityType: string | undefined) => Promise<
-    Array<{
-      key: Hex;
-      payload: Uint8Array | undefined;
-      attributes: { key: string; value: string | number }[];
-      expiresAtBlock: bigint | undefined;
-    }>
-  >;
+  fetchCandidates?: (entityType: string | undefined) => Promise<RecallCandidate[]>;
   /** Substitute embedding call. */
   embedQuery?: (text: string) => Promise<Float32Array>;
   /** Substitute the utility-weight lookup. Default: read the SQLite mirror. */
@@ -222,19 +227,35 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
 
   const candidates = await fetchCandidates(opts.entityType);
 
+  // Wallet-derived key for opening sealed payloads. Resolved once; memoized in
+  // payload-key.ts. `null` ⇒ no wallet material → sealed memories are skipped
+  // (a recall miss, not a crash — the sovereignty negative control).
+  const payloadKey = await getPayloadKey();
+
   const hits: MemoryHit[] = [];
   for (const c of candidates) {
     const t = pickEntityType(c.attributes);
     if (!t) continue;
     if (opts.entityType && t !== opts.entityType) continue;
 
+    // Decrypt sealed payloads in RAM before decoding. The chain + mirror hold
+    // ciphertext; only this step (gated by the wallet key) recovers the raw
+    // RaBitQ / rule bytes. A sealed candidate we can't open is skipped.
+    let raw = c.payload;
+    if (raw && c.contentType === SEALED_CONTENT_TYPE) {
+      if (!payloadKey) continue;
+      try {
+        raw = await openPayload(payloadKey, raw);
+      } catch {
+        continue;
+      }
+    }
+
     let score = 0;
     if (t === "rule") {
-      if (c.payload) {
+      if (raw) {
         try {
-          const ruleText = new TextDecoder("utf-8", { fatal: false }).decode(
-            c.payload,
-          );
+          const ruleText = new TextDecoder("utf-8", { fatal: false }).decode(raw);
           // Try JSON shape { ruleText: "..." } first, fall back to raw text.
           let body = ruleText;
           try {
@@ -250,9 +271,9 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
       }
     } else {
       // observation | episode — RaBitQ packed bytes.
-      if (c.payload && c.payload.length === RABITQ_PACK_SIZE) {
+      if (raw && raw.length === RABITQ_PACK_SIZE) {
         try {
-          const code = unpackCode(c.payload);
+          const code = unpackCode(raw);
           score = rabitqInnerProduct(queryEmbedding, code);
         } catch {
           score = 0;
@@ -270,7 +291,7 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
       // to 0 and caused the UI to render live entities as "expired".
       expiresAtBlock:
         c.expiresAtBlock === undefined ? 0 : Number(c.expiresAtBlock),
-      payloadPreview: previewOf(c.payload),
+      payloadPreview: previewOf(raw),
       attributes: c.attributes,
     });
   }
@@ -307,28 +328,38 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
 }
 
 /**
- * Default Arkiv-backed candidate fetcher. Pulls up to CANDIDATE_LIMIT live
- * entities matching project + (optional) entityType, with payload + attributes.
+ * Default candidate fetcher — reads the LOCAL SQLite mirror, not a live Arkiv
+ * query. This is the "local-first hot path": recall never round-trips the chain,
+ * so it's fast, leaks no query pattern to the RPC, and (post encryption-at-rest)
+ * is the only place payloads are decrypted — the mirror stores chain ciphertext.
+ *
+ * The mirror is kept current by the daemon (src/mirror/daemon.ts) re-syncing from
+ * the public Arkiv RPC. Recall therefore requires the mirror to be synced first
+ * (run the daemon / backfill); there is deliberately no chain-read fallback, since
+ * sealed payloads can't be scored from chain anyway.
+ *
+ * Pulls live entities, optionally narrows by the `entityType` attribute (mirrors
+ * the old `where(eq("entityType", …))`), and caps at CANDIDATE_LIMIT.
  */
-async function defaultFetchCandidates(entityType: string | undefined): Promise<
-  Array<{
-    key: Hex;
-    payload: Uint8Array | undefined;
-    attributes: { key: string; value: string | number }[];
-    expiresAtBlock: bigint | undefined;
-  }>
-> {
-  const q = cortexQuery().withPayload(true).withAttributes(true).withMetadata(true).limit(
-    CANDIDATE_LIMIT,
-  );
-  if (entityType) {
-    q.where(eq("entityType", entityType));
+async function defaultFetchCandidates(
+  entityType: string | undefined,
+): Promise<RecallCandidate[]> {
+  // Over-fetch then narrow: the mirror holds non-memory entities (citation,
+  // state_root, …) too, so widen the window before the entityType filter.
+  const entities = await listMirroredEntities({ state: "live", limit: CANDIDATE_LIMIT * 4 });
+  const out: RecallCandidate[] = [];
+  for (const e of entities) {
+    if (entityType && !e.attributes.some((a) => a.key === "entityType" && a.value === entityType)) {
+      continue;
+    }
+    out.push({
+      key: e.entityKey,
+      payload: e.payload ?? undefined,
+      attributes: e.attributes,
+      expiresAtBlock: BigInt(e.expiresAtBlock),
+      contentType: e.contentType,
+    });
+    if (out.length >= CANDIDATE_LIMIT) break;
   }
-  const result = await q.fetch();
-  return result.entities.map((e) => ({
-    key: e.key,
-    payload: e.payload,
-    attributes: e.attributes,
-    expiresAtBlock: e.expiresAtBlock,
-  }));
+  return out;
 }
