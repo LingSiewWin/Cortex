@@ -5,61 +5,84 @@
  *   - recall(query, k)
  *   - act(action, citations)
  *
- * Every act() call:
+ * Optimistic Memory Buffering — act() never blocks on Braga's block time.
+ * Every act() call runs entirely against the local SQLite mirror + in-process
+ * state, then defers all on-chain work to a durable outbox the anchor worker
+ * drains (src/agent/anchor-worker.ts):
  *   1. Validates citations against the last recall set (hallucinations dropped).
  *   2. Increments per-memory citation counts in bun:sqlite.
- *   3. Fires accumulative `reinforceBatch` on the surviving citations.
- *   4. Promotes any memory that crossed the working→episodic threshold:
- *        - bumps its lifespan by REINFORCEMENT.episodicReinforcementSeconds
- *        - transfers ownership from session key → user EOA so the long-lived
- *          memory survives session-key death (see lib/ownership.ts).
- *   5. Flags any memory ready for semantic distillation. The actual LLM call
- *      runs in darwinian/distill.ts (kept separate so act() stays fast — the
- *      distill happens out of the synchronous decision path).
+ *   3. Computes the accumulative reinforcement amount per citation (SEDM-scaled)
+ *      and evolves each memory's utility weight — locally, no chain call.
+ *   4. Marks any memory that crossed the working→episodic threshold promoted
+ *      (the on-chain ownership transfer to the user EOA happens when the worker
+ *      drains the bundle — see lib/ownership.ts).
+ *   5. Flags any memory ready for semantic distillation (distill.ts cron).
+ *   6. Builds the on-chain CITATION payload (carrying the POST-act scores) +
+ *      enqueues an `act_bundle` to the outbox, then returns immediately. The
+ *      worker fires extend → promote → write-citation → MMR-append → anchor,
+ *      and reconciles the cited rows verified=true once the anchor lands.
  *
- * Citation tracking lives in the SQLite mirror (citation_counts + citation_sessions
- * tables — see mirror/schema.sql). The sqlite-side counters are the source of
- * truth for tier promotions; the Arkiv-side lifespan is the source of truth for
- * "is this memory still alive?".
+ * The agent's next recall() (already reads the local mirror) sees the evolved
+ * state instantly — the chain catches up asynchronously. Citation tracking lives
+ * in the SQLite mirror (citation_counts + citation_sessions); the sqlite counters
+ * are the source of truth for tier promotions, the Arkiv lifespan for "alive?".
  */
 
 import type { Database } from "bun:sqlite";
 import type { Hex } from "@arkiv-network/sdk";
-import { jsonToPayload, ExpirationTime } from "@arkiv-network/sdk/utils";
+import { jsonToPayload } from "@arkiv-network/sdk/utils";
 import { keccak256, bytesToHex } from "viem";
-import { initMirrorDb, setPayloadHash, getMemoryWeight, setMemoryWeight } from "../mirror/db.ts";
-import { reinforceBatch, type ReinforceBatchDeps } from "./extend.ts";
-import { promoteOwnership } from "../lib/ownership.ts";
+import {
+  initMirrorDb,
+  getMemoryWeight,
+  setMemoryWeight,
+  getCitationRows,
+  enqueueOutbox,
+  type OutboxBundle,
+} from "../mirror/db.ts";
 import { getLastRecallIds, getLastRecallRanks, getLastRecallK } from "./recall.ts";
-import { singleCreate } from "../lib/batch-writer.ts";
 import { REINFORCEMENT, ENTITY_TYPE, UTILITY } from "../constants.ts";
 import { proxyUtility, evolveWeight, leaseSeconds } from "./utility.ts";
-import { appendToStateMMR } from "../mirror/state.ts";
-import { commitAndAnchor, type StateRootAnchorResult } from "../mirror/anchor.ts";
 import { publish } from "../lib/events.ts";
+
+/**
+ * Per-memory POST-act scoring snapshot, embedded in the on-chain CITATION
+ * payload so the evolved tier + utility weight are cryptographically committed
+ * to the anchored MMR root — not just held in the local SQLite mirror. This is
+ * what makes the Darwinian state verifiable from chain and reconstructable
+ * after the mirror is deleted (see src/darwinian/score-replay.ts).
+ */
+export interface CitationScore {
+  key: Hex;
+  tier: "observation" | "episode" | "rule";
+  /** Evolved SEDM utility weight after this act. */
+  weight: number;
+  /** Cumulative citation count after this act. */
+  citationCount: number;
+}
 
 export interface ActResult {
   action: string;
   /** Citations that survived the lastRecallIds check. */
   citations: Hex[];
-  /** Memories whose Arkiv lifespan was extended this turn. */
+  /** Memories whose lifespan WILL be extended once the worker drains the bundle. */
   extendedKeys: Hex[];
-  /** Memories that crossed a tier threshold this turn. */
+  /** Memories that crossed a tier threshold this turn (already marked locally). */
   promotedKeys: Hex[];
-  /** Tx hashes for extends + ownership transfers + state-root anchor. */
-  txHashes: string[];
   /**
-   * Entity key of the on-chain CITATION entity written for this act() call.
-   * `null` if there were no valid citations (nothing was written) or if the
-   * write failed (warning logged; we don't fail act() over an audit row).
+   * Optimistic buffering outcome:
+   *   - "queued": local scoring committed; on-chain work enqueued to the outbox.
+   *   - "noop":   no citation survived the recall check — nothing enqueued.
    */
-  citationEntityKey: Hex | null;
+  status: "queued" | "noop";
+  /** Outbox row id for the enqueued `act_bundle`; `null` when status is "noop". */
+  outboxId: number | null;
   /**
-   * Phase 13 — the MMR state-root snapshot committed for this decision.
-   * `null` when the citation write failed (no state to commit) or when the
-   * anchor broadcast failed (commit row still inserted locally).
+   * keccak256 of the exact CITATION payload bytes — the MMR leaf the worker will
+   * append + anchor. `null` when status is "noop". This is what binds the evolved
+   * Darwinian scores to the anchored root once the bundle drains (score-replay.ts).
    */
-  stateRootAnchor: StateRootAnchorResult | null;
+  citationPayloadHashHex: Hex | null;
 }
 
 export interface ActOptions {
@@ -81,34 +104,10 @@ export interface ActOptions {
 export interface ActDeps {
   /** Used to validate citations. Default: getLastRecallIds(). */
   lastRecallIds?: () => Set<Hex>;
-  /** SQLite mirror — default: initMirrorDb(). */
+  /** SQLite mirror — default: initMirrorDb(). The outbox lives here too. */
   db?: Database;
-  /** Reinforce-batch override. */
-  reinforce?: (
-    items: { entityKey: Hex; reinforcementSeconds: number }[],
-  ) => Promise<string>;
-  /** Ownership-promote override. */
-  promote?: (entityKeys: readonly Hex[], userEOA: Hex) => Promise<{ txHash: string }>;
   /** Mirror lookup — returns entityType for a key if known. */
   entityTypeOf?: (entityKey: Hex) => "observation" | "episode" | "rule" | undefined;
-  /**
-   * Override for the on-chain CITATION-entity write. Default: singleCreate().
-   * Tests can stub this to avoid touching Braga.
-   */
-  writeCitationEntity?: (input: {
-    action: string;
-    citations: Hex[];
-  }) => Promise<{
-    entityKey: Hex;
-    txHash: string;
-    /**
-     * Optional in the test seam — when present, act() will append the hash
-     * to the in-process MMR and commit+anchor a state-root. Production path
-     * (`defaultWriteCitationEntity`) always returns it; tests that don't
-     * care about MMR side effects can omit it.
-     */
-    payloadHashHex?: Hex;
-  }>;
 }
 
 /**
@@ -241,20 +240,9 @@ export async function act(opts: ActOptions): Promise<ActResult> {
   const sessionId = opts.sessionId ?? "default-session";
   const lastIdsFn = opts._deps?.lastRecallIds ?? getLastRecallIds;
   const db = opts._deps?.db ?? (await initMirrorDb());
-  const reinforce =
-    opts._deps?.reinforce ??
-    (async (items) => reinforceBatch(items));
-  const promote =
-    opts._deps?.promote ??
-    (async (keys, eoa) => {
-      const result = await promoteOwnership(keys, eoa);
-      return { txHash: result.txHash };
-    });
   const entityTypeOf =
     opts._deps?.entityTypeOf ??
     ((entityKey: Hex) => defaultEntityTypeOf(db, entityKey));
-  const writeCitationEntity =
-    opts._deps?.writeCitationEntity ?? defaultWriteCitationEntity;
 
   // 1. Validate citations against last recall set.
   const allowed = lastIdsFn();
@@ -273,60 +261,10 @@ export async function act(opts: ActOptions): Promise<ActResult> {
       citations: [],
       extendedKeys: [],
       promotedKeys: [],
-      txHashes: [],
-      citationEntityKey: null,
-      stateRootAnchor: null,
+      status: "noop",
+      outboxId: null,
+      citationPayloadHashHex: null,
     };
-  }
-
-  // Tx hashes accumulate across the citation-entity write, the reinforce batch,
-  // and any ownership promotion. Declared early so 1a can push into it.
-  const txHashes: string[] = [];
-
-  // 1a. Write the on-chain CITATION entity BEFORE firing extends. This is the
-  // audit row the UI's /api/decisions endpoint surfaces. Failure here logs a
-  // warning but does not abort act() — the reinforcement is the load-bearing
-  // economic effect; the citation row is the readable record.
-  let citationEntityKey: Hex | null = null;
-  let stateRootAnchor: StateRootAnchorResult | null = null;
-  try {
-    const writeResult = await writeCitationEntity({
-      action: opts.action,
-      citations: validCitations,
-    });
-    citationEntityKey = writeResult.entityKey;
-    txHashes.push(writeResult.txHash);
-
-    // Phase 13 — Merkleized state anchor.
-    // After the citation entity lands, append its payload hash to THIS
-    // process's MMR singleton (the daemon's MMR catches up asynchronously
-    // via its hydrate hook), then commit + anchor the new root to Arkiv.
-    //
-    // We append explicitly here (rather than relying on daemon hydrate)
-    // because the agent runtime and the daemon are typically separate
-    // processes. The agent process needs its MMR to reflect THIS new
-    // citation before computing the root to anchor.
-    //
-    // If writeCitationEntity exposed the payload hash, use it; otherwise
-    // we skip (test stubs may not return it). Real production paths set it.
-    if (writeResult.payloadHashHex) {
-      try {
-        setPayloadHash(db, writeResult.entityKey, writeResult.payloadHashHex);
-        await appendToStateMMR(writeResult.payloadHashHex);
-        stateRootAnchor = await commitAndAnchor("act");
-        txHashes.push(stateRootAnchor.txHash);
-      } catch (err) {
-        console.warn(
-          `act: state-root anchor failed — ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-    }
-  } catch (err) {
-    console.warn(
-      `act: writeCitationEntity failed — ${err instanceof Error ? err.message : String(err)}`,
-    );
   }
 
   // 2. Bump counts + decide reinforcement amount per citation.
@@ -396,22 +334,24 @@ export async function act(opts: ActOptions): Promise<ActResult> {
     }
   }
 
-  // 3. Fire the accumulative extend batch.
-  let reinforceSucceeded = false;
-  try {
-    const txHash = await reinforce(reinforceItems);
-    txHashes.push(txHash);
-    reinforceSucceeded = true;
-  } catch (err) {
-    console.warn(
-      `act: reinforceBatch failed — ${err instanceof Error ? err.message : String(err)}`,
-    );
+  // 3. Mark promotions locally (optimistic) — the on-chain ownership transfer
+  // to the user EOA happens when the worker drains this bundle. Marking here
+  // means a subsequent act() in the same fast loop sees promoted_to set and
+  // won't re-enqueue the promotion.
+  for (const k of promotionsToEpisode) markPromoted(db, k, "episode");
+
+  // 4. Flag semantic-ready memories. The distill.ts cron picks these up.
+  for (const k of promotedToSemantic) {
+    // Idempotent — multiple acts can flag the same key before distill runs.
+    db.prepare(
+      "UPDATE citation_counts SET promoted_to = 'rule' WHERE entity_key = ? AND (promoted_to IS NULL OR promoted_to = 'episode')",
+    ).run(k);
   }
 
-  // 3a. Live spine — one memory.cited per reinforced memory. Drives the
-  // Constellation glow + (on promotion) the zone tween. Only emitted when the
-  // reinforce actually landed, so the dashboard never animates a non-event.
-  if (reinforceSucceeded) {
+  // 5. Live spine — one memory.cited per cited memory. Drives the Constellation
+  // glow + (on promotion) the zone tween. Emitted optimistically: the local
+  // scoring IS committed; the chain catches up via the worker.
+  {
     const episodeSet = new Set<Hex>(promotionsToEpisode);
     const semanticSet = new Set<Hex>(promotedToSemantic);
     for (const item of reinforceItems) {
@@ -430,26 +370,37 @@ export async function act(opts: ActOptions): Promise<ActResult> {
     }
   }
 
-  // 4. Promote working → episodic (ownership transfer to user EOA).
-  if (promotionsToEpisode.length > 0) {
-    try {
-      const result = await promote(promotionsToEpisode, opts.userPrimaryEOA);
-      txHashes.push(result.txHash);
-      for (const k of promotionsToEpisode) markPromoted(db, k, "episode");
-    } catch (err) {
-      console.warn(
-        `act: promoteOwnership(working→episodic) failed — ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
+  // 6. Build the on-chain CITATION payload carrying the POST-act scores, then
+  // enqueue the whole on-chain bundle to the durable outbox. Scores are read
+  // from citation_counts AFTER all promotions, so each cited memory's resulting
+  // tier/weight/count is what the worker will anchor — binding the *evolved*
+  // Darwinian state to the anchored MMR root (reconstructable after a mirror
+  // wipe, see score-replay.ts). No chain call here: act() returns immediately.
+  const citedRows = getCitationRows(db, validCitations);
+  const scores: CitationScore[] = validCitations.map((key) => {
+    const r = citedRows.get(key);
+    const baseType = entityTypeOf(key);
+    const tier: CitationScore["tier"] =
+      r?.promotedTo === "rule" || baseType === "rule"
+        ? "rule"
+        : r?.promotedTo === "episode" || baseType === "episode"
+          ? "episode"
+          : "observation";
+    return { key, tier, weight: r?.weight ?? UTILITY.wInit, citationCount: r?.count ?? 0 };
+  });
 
-  // 5. Flag semantic-ready memories. The distill.ts cron picks these up.
-  for (const k of promotedToSemantic) {
-    // Idempotent — multiple acts can flag the same key before distill runs.
-    db.prepare(
-      "UPDATE citation_counts SET promoted_to = 'rule' WHERE entity_key = ? AND (promoted_to IS NULL OR promoted_to = 'episode')",
-    ).run(k);
-  }
+  const built = buildCitationPayload(opts.action, validCitations, scores);
+  const bundle: OutboxBundle = {
+    action: opts.action,
+    citations: validCitations,
+    reinforceItems,
+    promotionsToEpisode,
+    userPrimaryEOA: opts.userPrimaryEOA,
+    citationPayloadHex: built.payloadHex,
+    citationAttributes: built.attributes,
+    citationPayloadHashHex: built.payloadHashHex,
+  };
+  const outboxId = enqueueOutbox(db, "act_bundle", bundle);
 
   const promotedKeys: Hex[] = [...promotionsToEpisode, ...promotedToSemantic];
 
@@ -458,51 +409,53 @@ export async function act(opts: ActOptions): Promise<ActResult> {
     citations: validCitations,
     extendedKeys: reinforceItems.map((i) => i.entityKey),
     promotedKeys,
-    txHashes,
-    citationEntityKey,
-    stateRootAnchor,
+    status: "queued",
+    outboxId,
+    citationPayloadHashHex: built.payloadHashHex,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Default citation-entity writer — production path lives in lib/batch-writer.
+// Citation-payload builder (pure — no chain). Produces the EXACT bytes the
+// anchor worker ships on-chain, their keccak256 (the MMR leaf), and the stamped
+// attributes. act() puts payloadHex + hash + attributes into the outbox bundle;
+// the worker reconstructs the bytes verbatim so the hash it anchors matches.
 // Stamped attributes:
 //   - entityType=citation (read by ui-server /api/decisions)
 //   - action=<label>
 //   - citationCount=<n>
 //   - cite0..citeN-1=<entityKey.toLowerCase()>  (downstream join keys)
-// PROJECT_ATTRIBUTE is added by singleCreate via stampProjectAttribute.
+// PROJECT_ATTRIBUTE is added by the worker's singleCreate via stampProjectAttribute.
 // ---------------------------------------------------------------------------
 
-async function defaultWriteCitationEntity(input: {
-  action: string;
-  citations: Hex[];
-}): Promise<{ entityKey: Hex; txHash: string; payloadHashHex: Hex }> {
-  // Compute the payload bytes FIRST so we can hash them before the SDK call.
-  // The hash is what the MMR commits to — it must be derived from the exact
-  // bytes we ship on-chain, not from a re-serialised view.
+export function buildCitationPayload(
+  action: string,
+  citations: Hex[],
+  scores: CitationScore[],
+): {
+  payloadHex: Hex;
+  payloadHashHex: Hex;
+  attributes: { key: string; value: string | number }[];
+} {
+  // `scores` carries the POST-act tier/weight/count per cited memory, so the
+  // anchored root commits the evolved Darwinian state (verifiable +
+  // chain-reconstructable). The hash is derived from the exact bytes shipped.
   const payload = jsonToPayload({
-    action: input.action,
-    citations: input.citations,
+    action,
+    citations,
+    scores,
     observedAtMs: Date.now(),
   });
-  const payloadHashHex = bytesToHex(keccak256(payload, "bytes"));
-
-  const { entityKey, txHash } = await singleCreate({
-    payload,
-    contentType: "application/json",
+  return {
+    payloadHex: bytesToHex(payload),
+    payloadHashHex: bytesToHex(keccak256(payload, "bytes")),
     attributes: [
       { key: "entityType", value: ENTITY_TYPE.CITATION },
-      { key: "action", value: input.action },
-      { key: "citationCount", value: input.citations.length },
-      ...input.citations.map((k, i) => ({
-        key: `cite${i}`,
-        value: k.toLowerCase(),
-      })),
+      { key: "action", value: action },
+      { key: "citationCount", value: citations.length },
+      ...citations.map((k, i) => ({ key: `cite${i}`, value: k.toLowerCase() })),
     ],
-    expiresInSeconds: ExpirationTime.fromDays(30),
-  });
-  return { entityKey, txHash, payloadHashHex };
+  };
 }
 
 // ---------------------------------------------------------------------------

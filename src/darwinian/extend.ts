@@ -1,31 +1,28 @@
 /**
  * Cortex — accumulative extend (the Darwinian reinforcement primitive).
  *
- * Solves Flaw 1 from docs/Arkiv.md §3.1: Arkiv's `extend` is REPLACE-not-ADD.
- * The chain requires `newExpiresAt = currentBlock + expiresIn` to be strictly
- * greater than the current `expiresAtBlock`. A naive `extendEntity(entityKey,
- * { expiresIn: 24h })` reverts as soon as `remaining > 24h` — which is exactly
- * the regime Cortex wants (frequently cited memories should keep growing past
- * their starting lifespan).
+ * Deployed Braga (`arkiv-op-geth`) `extend` is ADDITIVE: `expiresAt += expiresIn`.
+ * VERIFIED on-chain 2026-05-25 (docs/arkiv-network/2026-05-25-extend-semantics-VERIFIED.md,
+ * tx 0x28be59…): a 500-block extend on an entity with 98 blocks remaining produced
+ * exactly E0+500, not currentBlock+500. So `expiresIn` IS the net lease gain.
  *
- * Fix (per CLAUDE.md "Accumulative extend"):
+ *     reinforcement = REINFORCEMENT_SECONDS (e.g. 24h on a working citation)
+ *     extendEntity(entityKey, expiresIn: reinforcement)   // expiresAt += reinforcement
  *
- *     remaining        = secondsUntilExpiry(expiresAtBlock)
- *     reinforcement    = REINFORCEMENT_SECONDS (e.g. 24h on a working citation)
- *     new_btl_seconds  = remaining + reinforcement
- *     extendEntity(entityKey, expiresIn: new_btl_seconds)
+ * Each citation adds exactly `reinforcement` of lifespan — frequently cited
+ * memories accumulate; useless ones expire. LTP-faithful.
  *
- * Because `expiresIn` is measured from the current block, the new expiry is
- * (currentBlock + remaining + reinforcement) = (currentExpiresAt + reinforcement),
- * which is strictly greater than currentExpiresAt for any positive
- * reinforcement. LTP-faithful, not REPLACE-naive.
+ * HISTORY / WARNING: this previously used `remaining + reinforcement`, defending
+ * against a REPLACE-with-`requireExpiryIncreased` revert. That REPLACE behavior is
+ * a property of the FUTURE EntityRegistry.sol (unshipped SDK PR #64), NOT deployed
+ * Braga. Under the live additive precompile, `remaining + reinforcement` double-counts
+ * `remaining` and balloons leases. If/when Braga migrates to the ABI EntityRegistry,
+ * the REPLACE formula must come back (branch on protocol version).
  *
  * Errors:
- *   - Already-expired entities throw `EntityAlreadyExpiredError`. Caller's
- *     responsibility is to re-CREATE rather than blindly retry — there's no
- *     un-evicting an expired entity on Arkiv.
- *   - extend_too_short / ExpiryNotExtended reverts indicate a math bug or a
- *     concurrent extend; surfaced as-is via the error taxonomy.
+ *   - Already-expired entities throw `EntityAlreadyExpiredError`. Caller re-CREATEs
+ *     rather than retrying — Braga auto-deletes expired entities, so extend reverts
+ *     "no entity".
  */
 
 import type { Hash, Hex } from "@arkiv-network/sdk";
@@ -113,16 +110,19 @@ export async function reinforce(
   const expiresAtBlock = await getExpires(entityKey);
   const remaining = await remainingFn(expiresAtBlock);
   if (remaining <= 0) {
+    // Expired entities are auto-deleted by Braga's per-block housekeeping, so an
+    // extend would revert "no entity". Skip + signal re-create.
     throw new EntityAlreadyExpiredError(entityKey);
   }
 
-  // The accumulative formula: new lifespan from NOW = old remaining + reinforcement.
-  // Because Arkiv's `expiresIn` is "seconds from current block", this makes the new
-  // expiresAt strictly greater than the current one by exactly `reinforcementSeconds`.
-  const newBtlSeconds = Math.floor(remaining) + reinforcementSeconds;
-
+  // Deployed Braga (`arkiv-op-geth`) `extend` is ADDITIVE: it does
+  // `expiresAt += expiresIn` (VERIFIED on-chain — docs/arkiv-network/
+  // 2026-05-25-extend-semantics-VERIFIED.md). So `expiresIn` is exactly the net
+  // gain; passing `remaining + reinforcement` would double-count the remaining
+  // lease and balloon lifespans. The `remaining + reinforcement` formula is only
+  // correct on the FUTURE REPLACE-semantics EntityRegistry.sol (unshipped SDK PR #64).
   const result = await withRetry(
-    () => sendExtend({ entityKey, expiresIn: newBtlSeconds }),
+    () => sendExtend({ entityKey, expiresIn: reinforcementSeconds }),
     { label: `reinforce(${entityKey.slice(0, 10)}…, +${reinforcementSeconds}s)` },
   );
   return result.txHash;
@@ -182,9 +182,10 @@ export async function reinforceBatch(
         );
         continue;
       }
+      // ADDITIVE semantics (see reinforce() above): expiresIn IS the net gain.
       extensions.push({
         entityKey: item.entityKey,
-        expiresIn: Math.floor(remaining) + item.reinforcementSeconds,
+        expiresIn: item.reinforcementSeconds,
       });
     } catch (err) {
       console.warn(

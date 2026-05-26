@@ -1,15 +1,18 @@
 /**
- * Phase 5 — act() / citation tracker tests.
+ * Phase 5 / Optimistic Memory Buffering — act() / citation tracker tests.
  *
- * Verifies the Darwinian engine's behavioral contract:
- *   1. Citations that aren't in the last recall set are silently dropped
- *      (hallucination defense). Their counts never bump.
- *   2. Citations that ARE in the last recall set bump the count, fire an
- *      accumulative extend, and produce a tx hash.
- *   3. Crossing REINFORCEMENT.promoteToEpisodic triggers ownership promotion
- *      to the user EOA and marks the row promoted_to='episode'.
- *   4. Crossing REINFORCEMENT.promoteToSemantic + distinctSessionsForSemantic
- *      flags the memory for distillation (promoted_to='rule').
+ * act() is now OPTIMISTIC: it commits all scoring to the local SQLite mirror and
+ * enqueues the on-chain work to the `outbox` (drained later by the anchor
+ * worker — see tests/anchor-worker.test.ts). So these tests assert the local
+ * effects + the enqueued bundle, NOT synchronous tx hashes:
+ *   1. Citations not in the last recall set are silently dropped
+ *      (hallucination defense). Their counts never bump, nothing is enqueued.
+ *   2. Valid citations bump the count, evolve the weight, and enqueue exactly
+ *      one act_bundle carrying the reinforce items + CITATION payload.
+ *   3. Crossing promoteToEpisodic marks promoted_to='episode' locally AND puts
+ *      the key in bundle.promotionsToEpisode (the worker does the ownership tx).
+ *   4. Crossing promoteToSemantic + distinctSessionsForSemantic flags
+ *      promoted_to='rule' for the distillation cron.
  *
  * The mirror DB is dependency-injected (in-memory sqlite) so tests don't touch
  * the dev mirror or Braga.
@@ -19,6 +22,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { Hex } from "@arkiv-network/sdk";
 import { act, getCitationStats } from "../src/darwinian/citation.ts";
+import { listPendingOutbox, countOutbox, type OutboxBundle } from "../src/mirror/db.ts";
 import { ENTITY_TYPE, REINFORCEMENT } from "../src/constants.ts";
 
 const FAKE_USER = "0xCAfeBABe00000000000000000000000000000000" as Hex;
@@ -40,12 +44,6 @@ async function freshDb(): Promise<Database> {
 interface ScenarioDeps {
   db: Database;
   lastRecallIds: Set<Hex>;
-  reinforceTxHashes: string[];
-  promoteTxHashes: string[];
-  citationWriteTxHashes: string[];
-  reinforceItems: { entityKey: Hex; reinforcementSeconds: number }[][];
-  promoteCalls: { keys: Hex[]; userEOA: Hex }[];
-  citationWrites: { action: string; citations: Hex[] }[];
   entityTypes: Map<Hex, "observation" | "episode" | "rule">;
 }
 
@@ -53,44 +51,23 @@ function makeDeps(db: Database, lastIds: Hex[]): ScenarioDeps {
   return {
     db,
     lastRecallIds: new Set(lastIds),
-    reinforceTxHashes: [],
-    promoteTxHashes: [],
-    citationWriteTxHashes: [],
-    reinforceItems: [],
-    promoteCalls: [],
-    citationWrites: [],
     entityTypes: new Map(),
   };
 }
 
+/** ActDeps wired to the scenario — act() now only needs db + recall set + types. */
 function depBundle(s: ScenarioDeps) {
   return {
     db: s.db,
     lastRecallIds: () => s.lastRecallIds,
-    reinforce: async (items: { entityKey: Hex; reinforcementSeconds: number }[]) => {
-      s.reinforceItems.push(items);
-      const tx = `0xreinforce${s.reinforceTxHashes.length.toString(16).padStart(2, "0")}`;
-      s.reinforceTxHashes.push(tx);
-      return tx;
-    },
-    promote: async (keys: readonly Hex[], userEOA: Hex) => {
-      s.promoteCalls.push({ keys: [...keys], userEOA });
-      const tx = `0xpromote${s.promoteTxHashes.length.toString(16).padStart(2, "0")}`;
-      s.promoteTxHashes.push(tx);
-      return { txHash: tx };
-    },
-    writeCitationEntity: async (input: { action: string; citations: Hex[] }) => {
-      s.citationWrites.push({ action: input.action, citations: [...input.citations] });
-      const idx = s.citationWriteTxHashes.length;
-      const tx = `0xcite${idx.toString(16).padStart(2, "0")}`;
-      s.citationWriteTxHashes.push(tx);
-      // Fake entity key — deterministic, hex-32-byte shape.
-      const entityKey =
-        `0xc174${idx.toString(16).padStart(4, "0")}${"0".repeat(56)}` as Hex;
-      return { entityKey, txHash: tx };
-    },
     entityTypeOf: (k: Hex) => s.entityTypes.get(k),
   };
+}
+
+/** The most recently enqueued act_bundle (highest outbox id), or null. */
+function latestBundle(db: Database): OutboxBundle | null {
+  const pending = listPendingOutbox(db, 100);
+  return pending.length > 0 ? pending[pending.length - 1]!.bundle : null;
 }
 
 describe("act — hallucination defense", () => {
@@ -114,9 +91,11 @@ describe("act — hallucination defense", () => {
     // The valid citation got counted.
     const stats = await getCitationStats(KEY_A, db);
     expect(stats?.count).toBe(1);
+    // Exactly one bundle enqueued, citing only the valid key.
+    expect(latestBundle(db)?.citations).toEqual([KEY_A]);
   });
 
-  test("all citations hallucinated → no reinforce tx, no promote tx, no citation entity", async () => {
+  test("all citations hallucinated → noop, nothing enqueued", async () => {
     const db = await freshDb();
     const deps = makeDeps(db, [KEY_A]);
     const result = await act({
@@ -126,16 +105,15 @@ describe("act — hallucination defense", () => {
       _deps: depBundle(deps),
     });
     expect(result.citations).toEqual([]);
-    expect(result.txHashes).toEqual([]);
-    expect(result.citationEntityKey).toBeNull();
-    expect(deps.reinforceItems.length).toBe(0);
-    expect(deps.promoteCalls.length).toBe(0);
-    expect(deps.citationWrites.length).toBe(0);
+    expect(result.status).toBe("noop");
+    expect(result.outboxId).toBeNull();
+    expect(result.citationPayloadHashHex).toBeNull();
+    expect(countOutbox(db, "pending")).toBe(0);
   });
 });
 
-describe("act — citation entity write", () => {
-  test("valid citations trigger a CITATION entity write with action + cites", async () => {
+describe("act — enqueued citation bundle", () => {
+  test("valid citations enqueue ONE bundle with action + cites + payload", async () => {
     const db = await freshDb();
     const deps = makeDeps(db, [KEY_A, KEY_B]);
     deps.entityTypes.set(KEY_A, "observation");
@@ -148,11 +126,27 @@ describe("act — citation entity write", () => {
       _deps: depBundle(deps),
     });
 
-    expect(deps.citationWrites.length).toBe(1);
-    expect(deps.citationWrites[0]?.action).toBe("buy ETH");
-    expect(deps.citationWrites[0]?.citations).toEqual([KEY_A, KEY_B]);
-    expect(result.citationEntityKey).not.toBeNull();
-    expect(result.txHashes[0]).toMatch(/^0xcite/);
+    expect(result.status).toBe("queued");
+    expect(result.outboxId).not.toBeNull();
+    expect(result.citationPayloadHashHex).toMatch(/^0x[0-9a-f]{64}$/);
+
+    expect(countOutbox(db, "pending")).toBe(1);
+    const bundle = latestBundle(db)!;
+    expect(bundle.action).toBe("buy ETH");
+    expect(bundle.citations).toEqual([KEY_A, KEY_B]);
+    expect(bundle.userPrimaryEOA).toBe(FAKE_USER);
+    expect(bundle.citationPayloadHashHex).toBe(result.citationPayloadHashHex!);
+    // The CITATION attributes carry the audit shape the worker writes on-chain.
+    const action = bundle.citationAttributes.find((a) => a.key === "action");
+    expect(action?.value).toBe("buy ETH");
+    const etype = bundle.citationAttributes.find((a) => a.key === "entityType");
+    expect(etype?.value).toBe(ENTITY_TYPE.CITATION);
+    const count = bundle.citationAttributes.find((a) => a.key === "citationCount");
+    expect(count?.value).toBe(2);
+    // Reinforce items cover both cited memories.
+    expect(bundle.reinforceItems.map((i) => i.entityKey).sort()).toEqual(
+      [KEY_A, KEY_B].sort(),
+    );
   });
 });
 
@@ -170,7 +164,8 @@ describe("act — citation counting", () => {
       _deps: depBundle(deps),
     });
 
-    expect(deps.reinforceItems[0]?.[0]?.reinforcementSeconds).toBe(
+    // First/unproven citation (weight = wInit) → exactly the base working lease.
+    expect(latestBundle(db)?.reinforceItems[0]?.reinforcementSeconds).toBe(
       REINFORCEMENT.workingReinforcementSeconds,
     );
     const stats = await getCitationStats(KEY_A, db);
@@ -203,6 +198,8 @@ describe("act — citation counting", () => {
     const stats = await getCitationStats(KEY_A, db);
     expect(stats?.count).toBe(2);
     expect(stats?.distinctSessions).toBe(1);
+    // One bundle per act.
+    expect(countOutbox(db, "pending")).toBe(2);
   });
 
   test("different sessions citing same memory → distinctSessions increments", async () => {
@@ -228,7 +225,7 @@ describe("act — citation counting", () => {
 });
 
 describe("act — tier promotion", () => {
-  test(`crossing promoteToEpisodic (${REINFORCEMENT.promoteToEpisodic}) triggers ownership transfer`, async () => {
+  test(`crossing promoteToEpisodic (${REINFORCEMENT.promoteToEpisodic}) enqueues an ownership transfer + marks promoted`, async () => {
     const db = await freshDb();
     const deps = makeDeps(db, [KEY_A]);
     deps.entityTypes.set(KEY_A, "observation");
@@ -242,9 +239,9 @@ describe("act — tier promotion", () => {
       sessionId: "s1",
       _deps: bundle,
     });
-    expect(deps.promoteCalls.length).toBe(0);
+    expect(latestBundle(db)?.promotionsToEpisode).toEqual([]);
 
-    // Second citation: count=2 ≥ threshold → promote.
+    // Second citation: count=2 ≥ threshold → promotion enqueued + marked locally.
     const r2 = await act({
       action: "second",
       citations: [KEY_A],
@@ -253,16 +250,15 @@ describe("act — tier promotion", () => {
       _deps: bundle,
     });
 
-    expect(deps.promoteCalls.length).toBe(1);
-    expect(deps.promoteCalls[0]?.keys).toEqual([KEY_A]);
-    expect(deps.promoteCalls[0]?.userEOA).toBe(FAKE_USER);
+    expect(latestBundle(db)?.promotionsToEpisode).toEqual([KEY_A]);
+    expect(latestBundle(db)?.userPrimaryEOA).toBe(FAKE_USER);
     expect(r2.promotedKeys).toContain(KEY_A);
 
-    // Row is marked promoted so the NEXT act doesn't re-fire.
+    // Row is marked promoted (optimistically) so the NEXT act doesn't re-fire.
     const stats = await getCitationStats(KEY_A, db);
     expect(stats?.promotedTo).toBe("episode");
 
-    // Third citation: count=3, already promoted → no NEW promote call.
+    // Third citation: count=3, already promoted → no NEW promotion in the bundle.
     await act({
       action: "third",
       citations: [KEY_A],
@@ -270,7 +266,7 @@ describe("act — tier promotion", () => {
       sessionId: "s3",
       _deps: bundle,
     });
-    expect(deps.promoteCalls.length).toBe(1); // still 1
+    expect(latestBundle(db)?.promotionsToEpisode).toEqual([]);
   });
 
   test(`semantic threshold (${REINFORCEMENT.promoteToSemantic} cites across ${REINFORCEMENT.distinctSessionsForSemantic} sessions) flags promoted_to='rule'`, async () => {
@@ -313,7 +309,7 @@ describe("act — tier promotion", () => {
       _deps: bundle,
     });
 
-    expect(deps.reinforceItems[0]?.[0]?.reinforcementSeconds).toBe(
+    expect(latestBundle(db)?.reinforceItems[0]?.reinforcementSeconds).toBe(
       REINFORCEMENT.episodicReinforcementSeconds,
     );
   });
