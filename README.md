@@ -25,17 +25,53 @@ typed event onto an SSE stream that the dashboard renders in real time. Load
 the page and watch the chain work — query → recall → reinforce → anchor — with
 live Braga tx links, or type your own query to drive a cycle manually.
 
+## Sovereign by construction
+
+Memories are **encrypted at rest with a key derived from your wallet** — the chain
+*and* the local mirror hold ciphertext; plaintext exists only in RAM during a
+recall, gated by your wallet's signature (`derivePayloadKey` → AES-256-GCM, no key
+escrow). This resolves the **Sovereign Memory Trilemma** (sovereignty ↔
+verifiability ↔ performance/cost) by routing each memory to its corner: a
+local-first hot path for speed, selective MMR anchoring for verifiability, and
+wallet-encryption for sovereignty on a public ledger.
+
+The headline consequence — **memory survives the operator dying:**
+
+```bash
+bun scripts/sovereignty-proof.ts   # kill backend → wipe the entire mirror → rebuild
+                                   # from the PUBLIC Arkiv RPC with ONLY your wallet →
+                                   # recall survives & decrypts; without it, unreadable
+```
+
+Proven on Braga (2026-05-23): seal+write → wipe mirror → cold-rebuild → recall HIT
+with the wallet, MISS without it —
+[tx](https://explorer.braga.hoodi.arkiv.network/tx/0x6c391af1fa9f9faa952b793980e2b657b33d724298b15a4b7e5fc174543828a2).
+
+### OpenClaw-compatible adapter ([OpenClaw](https://github.com/openclaw/openclaw))
+
+Cortex exposes an **OpenClaw-compatible adapter interface** (`extensions/memory-arkiv/`)
+for OpenClaw's single active memory slot: `memory_store` → sealed write to Arkiv,
+`memory_recall` → decay-aware recall. The aim is to turn a local-only assistant's
+memory into a portable, verifiable, cross-device backend. **Honest status:** the
+adapter's tool surface is validated against Braga via `bun scripts/openclaw-harness.ts`
+([store tx](https://explorer.braga.hoodi.arkiv.network/tx/0xf3c20dd8607a67e6e40c932d94752935cb3662a43a07881a3e5c272c067c765b)),
+but it has **not yet been run inside a live OpenClaw gateway** — the plugin shell is
+spec-compliant and awaiting that integration.
+
 ## Quick start
 
 ```bash
 bun install
-cp .env.example .env       # fill SESSION_KEY_PRIVATE_KEY, USER_PRIMARY_ADDRESS
+cp .env.example .env       # SESSION_KEY_PRIVATE_KEY, USER_PRIMARY_ADDRESS,
+                           # + CORTEX_USER_SIGNATURE or CORTEX_USER_PRIVATE_KEY (sealing)
 
 bun run faucet-check       # pre-flight on Braga
 bun run seed               # seed demo memories the agent will cite
 bun run dashboard          # http://localhost:3000/console — watch the cascade
 bun run spine-check        # one-process proof: real Braga ops → live events
 bun run demo-flow          # scripted end-to-end demo
+bun scripts/sealed-e2e.ts          # encryption-at-rest round-trip (key vs no-key)
+bun scripts/sovereignty-proof.ts   # operator-death survival proof
 ```
 
 > Seed **before** starting the dashboard: the autonomous loop and the seed
