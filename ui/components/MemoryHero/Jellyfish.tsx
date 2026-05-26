@@ -116,7 +116,8 @@ export function Jellyfish({ headRef }: JellyfishProps) {
   `;
 
   useFrame((state, delta) => {
-    if (matRef.current) matRef.current.uniforms.u_time.value += delta;
+    const uTime = matRef.current?.uniforms.u_time;
+    if (uTime) uTime.value += delta;
     const group = groupRef.current;
     if (!group) return;
 
