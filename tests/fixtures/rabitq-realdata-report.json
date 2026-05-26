@@ -1,51 +1,51 @@
 {
-  "generatedAt": "2026-05-22T03:09:57.643Z",
+  "generatedAt": "2026-05-25T21:10:04.126Z",
   "provider": "cohere",
   "corpusSize": 12,
   "embedDim": 1536,
   "packBytes": 198,
   "selfRecallScores": [
-    0.9998,
+    1.0004,
+    1.0004,
+    1.0002,
+    1.0001,
     0.9999,
     1,
+    0.9997,
+    0.9997,
     0.9998,
-    1.0003,
-    1.0003,
+    1.0004,
     0.9997,
-    0.9999,
-    0.9999,
-    0.9997,
-    1,
-    0.9998
+    1.0004
   ],
-  "intraClusterMean": 0.3792,
-  "interClusterMean": 0.2075,
-  "cluster_gap_pass_count": 10,
+  "intraClusterMean": 0.2945,
+  "interClusterMean": 0.1025,
+  "cluster_gap_pass_count": 9,
   "recall3OnQuery": {
     "query": "cats and kittens",
     "topKeys": [
       "kittens love warm sunshine",
-      "the cat sat on the mat",
-      "feline rested on rug"
+      "feline rested on rug",
+      "the cat sat on the mat"
     ]
   },
   "estimatorError": {
-    "rawCosine": 0.5391,
-    "rabitqEstimate": 0.5496,
-    "abs": 0.0105
+    "rawCosine": 0.6298,
+    "rabitqEstimate": 0.6339,
+    "abs": 0.0041
   },
   "encodeTimesMs": [
-    0.604,
-    0.367,
-    0.203,
-    0.145,
-    0.251,
-    0.254,
-    0.121,
-    0.208,
-    0.138,
-    0.547,
-    0.24,
-    0.216
+    0.779,
+    0.534,
+    0.248,
+    0.212,
+    0.139,
+    0.356,
+    0.209,
+    0.17,
+    0.221,
+    0.15,
+    0.074,
+    0.067
   ]
 }
