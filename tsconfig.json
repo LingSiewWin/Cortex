@@ -25,5 +25,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  // `extensions/` holds the OpenClaw `memory-arkiv` plugin shell, which imports
+  // `openclaw/plugin-sdk/*` (only resolvable where openclaw is installed). It is
+  // a separate workspace with its own tsconfig — keep it out of Cortex's compile.
+  "exclude": ["node_modules", "extensions"]
 }

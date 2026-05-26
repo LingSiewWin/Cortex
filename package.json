@@ -1,11 +1,11 @@
 {
   "name": "cortex",
-  "module": "index.ts",
+  "module": "src/ui-server.ts",
   "type": "module",
   "private": true,
   "description": "Cortex — a Darwinian memory engine for AI agents on Arkiv. Memories reinforce on cited utility; useless ones decay for free.",
   "scripts": {
-    "dev": "bun --hot ./index.ts",
+    "dev": "bun --hot src/ui-server.ts",
     "test": "bun test",
     "test:offline": "bun test tests/eip712.test.ts tests/session-key.test.ts tests/siwe.test.ts tests/rabitq.test.ts tests/darwinian-extend.test.ts tests/darwinian-citation.test.ts tests/dashboard.test.ts tests/market-publish.test.ts",
     "canary": "bun test tests/canary-atblock.test.ts",
@@ -20,7 +20,11 @@
     "seed": "bun scripts/seed-memories.ts",
     "spine-check": "bun scripts/spine-check.ts",
     "distill-demo": "bun scripts/distill-demo.ts",
-    "market-demo": "bun scripts/market-demo.ts"
+    "market-demo": "bun scripts/market-demo.ts",
+    "sealed-e2e": "bun scripts/sealed-e2e.ts",
+    "sovereignty-proof": "bun scripts/sovereignty-proof.ts",
+    "openclaw-harness": "bun scripts/openclaw-harness.ts",
+    "derive-user-signature": "bun scripts/derive-user-signature.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -32,8 +36,13 @@
   },
   "dependencies": {
     "@arkiv-network/sdk": "^0.6.8",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@react-three/postprocessing": "^3.0.4",
     "framer-motion": "12.40.0",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "three": "^0.184.0",
+    "viem": "^2.49.3"
   }
 }
