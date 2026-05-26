@@ -1,0 +1,23 @@
+{
+  "id": "memory-arkiv",
+  "name": "Cortex (Arkiv) Memory",
+  "description": "Sovereign, decay-aware agent memory on the Arkiv blockchain. Memories are RaBitQ-compressed, sealed with a wallet-derived key, written to Arkiv with a decaying lease, and reinforced when cited. Replaces the local memory slot with a portable, verifiable, cross-device backend.",
+  "kind": "memory",
+  "activation": {
+    "onStartup": false
+  },
+  "contracts": {
+    "tools": ["memory_recall", "memory_store"]
+  },
+  "preferOver": ["memory-core"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "network": {
+        "type": "string",
+        "description": "Arkiv network. Default: Braga testnet."
+      }
+    }
+  }
+}

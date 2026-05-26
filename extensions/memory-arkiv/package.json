@@ -1,0 +1,16 @@
+{
+  "name": "memory-arkiv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cortex (Arkiv) memory plugin for OpenClaw — sovereign, decay-aware agent memory.",
+  "main": "index.ts",
+  "openclaw": {
+    "extensions": ["index.ts"],
+    "kind": "memory"
+  },
+  "peerDependencies": {
+    "openclaw": "*",
+    "typebox": "*"
+  }
+}
