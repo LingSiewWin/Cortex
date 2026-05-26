@@ -112,6 +112,18 @@ function pickProvider(): { provider: Eip1193Provider; info: Eip6963ProviderInfo 
   return null;
 }
 
+/**
+ * All EIP-6963-announced wallets — for the picker shown when several extensions
+ * are installed (MetaMask + Phantom + Rabby all racing for window.ethereum).
+ * Re-dispatches the request so late-arriving wallets announce first.
+ */
+function announcedWallets(): Eip6963ProviderDetail[] {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+  }
+  return Array.from(providerRegistry.values());
+}
+
 // ---------------------------------------------------------------------------
 // Chain switching
 // ---------------------------------------------------------------------------
@@ -211,6 +223,9 @@ export function WalletConnect({ onConnected }: Props) {
   // don't re-pick. Refreshed when the registry changes (e.g. extension installed).
   const providerRef = useRef<Eip1193Provider | null>(null);
   const [providerName, setProviderName] = useState<string | null>(null);
+  // When >1 wallet is announced, show a picker instead of auto-guessing which
+  // one the user meant (the multi-wallet connect bug).
+  const [picking, setPicking] = useState(false);
 
   // Resolve provider as soon as we mount — EIP-6963 announcements may have
   // already landed before React rendered. Re-dispatch the request to catch
@@ -386,6 +401,27 @@ export function WalletConnect({ onConnected }: Props) {
     }
   };
 
+  // Entry point for the Connect button. If multiple wallets are installed,
+  // open the picker so the user chooses — instead of us auto-guessing one and
+  // failing on the wrong/contested provider.
+  const onConnectClick = () => {
+    setError(null);
+    const wallets = announcedWallets();
+    if (wallets.length > 1 && !providerRef.current) {
+      setPicking(true);
+      return;
+    }
+    void connect();
+  };
+
+  // User picked a specific wallet from the list → pin it, then connect.
+  const connectWith = (detail: Eip6963ProviderDetail) => {
+    providerRef.current = detail.provider;
+    setProviderName(detail.info?.name ?? "Injected wallet");
+    setPicking(false);
+    void connect();
+  };
+
   const switchChain = async () => {
     setError(null);
     const provider = providerRef.current ?? window.ethereum;
@@ -454,13 +490,38 @@ export function WalletConnect({ onConnected }: Props) {
     error: "Connect Wallet",
   };
 
+  // Multi-wallet picker — shown when several extensions announced themselves,
+  // so the user chooses instead of us guessing (and failing on the wrong one).
+  if (picking) {
+    const wallets = announcedWallets();
+    return (
+      <div className="right">
+        <span className="tag muted">Choose a wallet</span>
+        {wallets.map((w) => (
+          <button
+            key={w.info.uuid}
+            type="button"
+            className="primary"
+            onClick={() => connectWith(w)}
+            title={w.info.rdns}
+          >
+            {w.info.name}
+          </button>
+        ))}
+        <button type="button" className="ghost" onClick={() => setPicking(false)}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="right">
       {error ? <span className="tag warn">{error}</span> : null}
       <button
         type="button"
         className="primary"
-        onClick={connect}
+        onClick={onConnectClick}
         disabled={
           status === "connecting" ||
           status === "switching-chain" ||

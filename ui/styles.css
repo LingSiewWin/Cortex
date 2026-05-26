@@ -61,7 +61,7 @@
   --border: rgba(60, 60, 67, 0.12);
   --text: #1c1c1e;
   --text-2: #3c3c43;
-  --muted: #8e8e93;
+  --muted: #6e6e73;
   --accent: #007aff;
   --accent-soft: rgba(0, 122, 255, 0.08);
   --shadow:
@@ -80,6 +80,12 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
+}
+/* Landing is a light surface — keep the page (incl. overscroll) light so no dark
+ * gutter or rubber-band shows behind the full-bleed marketing page. */
+html:has(.landing),
+body:has(.landing) {
+  background: #f6f6f8;
 }
 body {
   font-family: var(--font-sans);
@@ -217,6 +223,15 @@ code,
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin: 0 6px 12px;
+}
+/* Plain-language one-liner under a section title — orients a first-time viewer
+   before they hit the panel's jargon. */
+.section-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: -6px 6px 12px;
+  line-height: 1.45;
+  max-width: 62ch;
 }
 .card {
   background: var(--surface);
@@ -453,7 +468,7 @@ code,
 }
 .modal .row {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: 110px minmax(0, 1fr);
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
@@ -464,6 +479,12 @@ code,
 }
 .modal .row .k {
   color: var(--muted);
+}
+/* Long 0x… keys/hashes must wrap inside the modal, not blow out the column. */
+.modal .row .mono,
+.modal .row .v {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .modal h3 {
   margin: 0 0 12px;
@@ -481,9 +502,21 @@ code,
  * =========================================================================== */
 
 .landing {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 24px 32px 64px;
+  /* Full-bleed light surface: the background fills the whole viewport so there
+   * are no dark body gutters on wide screens. Content is centered per-band
+   * below (not by constraining this element), so the page reads like a normal
+   * marketing site at any width. */
+  max-width: none;
+  margin: 0;
+  padding: 24px 0 80px;
+  min-height: 100vh;
+  background: var(--bg);
+}
+/* Center + pad each top-level band's content to a readable column. */
+.landing > * {
+  max-width: 1120px;
+  margin-inline: auto;
+  padding-inline: 40px;
 }
 
 .landing-nav {
@@ -564,6 +597,14 @@ code,
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
+/* Tablet: 3-up → 2-up before collapsing to 1-up, so 768–1040px isn't three
+ * full-width stacked cards. */
+@media (min-width: 761px) and (max-width: 1040px) {
+  .grid-3,
+  .trilemma-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 760px) {
   .grid-3 {
     grid-template-columns: 1fr;
@@ -572,7 +613,10 @@ code,
     font-size: 34px;
   }
   .landing {
-    padding: 16px 16px 48px;
+    padding: 16px 0 48px;
+  }
+  .landing > * {
+    padding-inline: 20px;
   }
 }
 
@@ -1532,8 +1576,7 @@ code,
  * Cold/cryptographic blue (--tier-rule) for peaks, leaves, active paths.
  * ------------------------------------------------------------------------- */
 .mmr-panel {
-  width: 400px;
-  max-width: 100%;
+  width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1906,7 +1949,7 @@ code,
 }
 .rpc-row {
   display: grid;
-  grid-template-columns: 1.6fr 0.7fr 0.7fr 1fr;
+  grid-template-columns: minmax(0, 1.6fr) auto auto minmax(0, 1fr);
   gap: 8px;
   font-size: 11.5px;
   padding: 5px 8px;
@@ -1919,6 +1962,10 @@ code,
 }
 .rpc-method {
   color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rpc-bytes,
 .rpc-ms {

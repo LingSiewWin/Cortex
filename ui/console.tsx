@@ -260,7 +260,13 @@ function App() {
 
       {/* Synaptic Market — keep visible in both modes */}
       <div className="section">
-        <div className="section-title">Synaptic Market</div>
+        <div className="section-title">Synaptic Market — preview</div>
+        <div className="section-hint">
+          Where agents will buy and sell proven memories from each other. The
+          listing browser is real; on-chain settlement (escrow + pay-to-decrypt)
+          is deferred — Braga can&apos;t deploy contracts yet, so this is a
+          preview of the layer, not live trading.
+        </div>
         <div className="card">
           {data.listings && data.listings.listings.length > 0 ? (
             data.listings.listings.map((l) => (

@@ -11,6 +11,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatGlm } from "./format";
+import MemoryHero from "./components/MemoryHero/MemoryHero";
 
 interface EconomicsResponse {
   totalGasUnits: number;
@@ -64,6 +65,9 @@ function Landing() {
 
   return (
     <div className="landing">
+      {/* 3D interactive hero — chrome memory tower + data field + jellyfish energy source */}
+      <MemoryHero />
+
       <nav className="landing-nav">
         <div className="brand">
           <span className="brand-dot" />
@@ -104,6 +108,41 @@ function Landing() {
           </a>
         </div>
       </header>
+
+      {/* What you actually get — plain language, BEFORE any protocol jargon. */}
+      <section className="section">
+        <div className="section-title">What you get</div>
+        <div className="grid-3">
+          <div className="card wedge">
+            <h3>🧠 Forgets what it doesn&apos;t use</h3>
+            <p>
+              Like a brain. Each time your agent acts on a memory, that memory
+              lives longer; the ones it never uses fade out on their own. No
+              manual cleanup, no paying to store junk forever.
+            </p>
+          </div>
+          <div className="card wedge">
+            <h3>🔑 You own it — survives us shutting down</h3>
+            <p>
+              Memories are encrypted with your wallet and live on a public
+              chain, not our servers. Delete our backend entirely and rebuild
+              every memory from the chain with just your wallet. Without the
+              wallet, they&apos;re unreadable.
+            </p>
+          </div>
+          <div className="card wedge">
+            <h3>🔌 Built to plug into your agent</h3>
+            <p>
+              An{" "}
+              <a href="https://github.com/openclaw/openclaw" target="_blank" rel="noreferrer">
+                OpenClaw
+              </a>
+              -compatible memory adapter: <code>memory_store</code> / <code>memory_recall</code>.
+              Spec-compliant and validated against Braga; live-gateway integration is the next step.
+            </p>
+          </div>
+        </div>
+      </section>
 
       {/* Live trilemma scoreboard — pulled from real chain data */}
       <section className="section">
@@ -168,12 +207,12 @@ function Landing() {
             </p>
           </div>
           <div className="card wedge">
-            <h3>3 · Synaptic Market</h3>
+            <h3>3 · OpenClaw-compatible adapter</h3>
             <p>
-              Distilled rules are encrypted + listed on Arkiv with public
-              attribute tags. Other agents pay GLM to receive a one-time
-              decryption grant. The first agent-to-agent insight economy
-              built into the protocol.
+              Cortex exposes <code>memory-arkiv</code>, an adapter for
+              OpenClaw&apos;s single memory slot — aiming to make a local-only
+              assistant&apos;s memory portable, verifiable, and wallet-owned.
+              Spec-compliant; not yet run inside a live gateway.
             </p>
           </div>
           <div className="card wedge">
@@ -228,10 +267,11 @@ function Landing() {
               EIP-7702 when Braga supports it.
             </li>
             <li>
-              <strong>Synaptic Market grant is world-readable in v1.</strong>{" "}
-              The decryption key ships as a public Arkiv entity, attribute-
-              filtered by buyer. v2 seals to buyer pubkey via ECIES.
-              Honor-system + demo-only — do not use for real value.
+              <strong>The memory market is deferred, not shipped.</strong> A
+              trustless agent-to-agent market needs on-chain escrow + atomic
+              pay-to-decrypt, which Braga (precompile-only, no contract
+              deployment — we verified this) can&apos;t host yet. We don&apos;t
+              claim it works; it&apos;s a documented future layer.
             </li>
             <li>
               <strong>Semantic-tier lifespan capped at 1 year.</strong> Not

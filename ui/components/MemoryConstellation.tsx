@@ -131,11 +131,17 @@ function placeDot(memory: MemorySummary, container: { x: [number, number] }): Po
   }
 
   const topPct = zone.top + 4 + hy * (zone.height - 8);
+  // Useful memories literally grow: scale the dot by its evolved SEDM weight
+  // (1.0 neutral … up to ~4.0). A 61×-cited, weight-4 memory reads as a big,
+  // bright star; an unproven one stays baseline. This is the Darwinian signal
+  // made visible without needing a tooltip.
+  const w = clamp(memory.weight, 1, 4);
+  const size = Math.round(zone.size * (1 + 0.22 * (w - 1)));
   return {
     memory,
     leftPct,
     topPct,
-    size: zone.size,
+    size,
     color: zone.color,
     glowColor: zone.glowColor,
     opacity: clamp(memory.remainingRatio, 0.15, 1),
@@ -197,6 +203,12 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
   return (
     <div className="section">
       <div className="section-title">Memory constellation</div>
+      <div className="section-hint">
+        Each dot is a memory living on the chain. Color is its tier (orange
+        working → episodic → blue rule); a memory grows bigger the more your
+        agent cites it, and fades as it nears expiry. Cite it and it survives;
+        ignore it and it decays for free.
+      </div>
       <div className="card constellation-card">
         <div className="constellation">
           {ZONES.map((z) => (
@@ -260,6 +272,11 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
                     <div className="constellation-tooltip-meta">
                       {tierLabel(d.memory.tier)} ·{" "}
                       {formatRemaining(d.memory.remainingSeconds)} left
+                    </div>
+                    <div className="constellation-tooltip-meta">
+                      cited {d.memory.citationCount}× · weight{" "}
+                      {d.memory.weight.toFixed(1)}
+                      {d.memory.promotedTo ? ` · promoted → ${d.memory.promotedTo}` : ""}
                     </div>
                   </div>
                 ) : null}

@@ -23,6 +23,14 @@ export interface MemorySummary {
   state: "live" | "deleted" | "expired";
   lastEventBlock: number;
   lastEventType: string;
+  /** Total citations across all sessions (0 if uncited). */
+  citationCount: number;
+  /** Distinct sessions that cited it. */
+  distinctSessions: number;
+  /** Tier it was promoted to (episode/rule), or null. */
+  promotedTo: "episode" | "rule" | null;
+  /** Evolved SEDM utility weight (1.0 = neutral baseline). */
+  weight: number;
 }
 
 export interface MemoriesResponse {
