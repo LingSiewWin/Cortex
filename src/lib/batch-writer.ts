@@ -18,7 +18,9 @@ import type { Attribute } from "@arkiv-network/sdk/types";
 import { stampProjectAttribute, getWalletClient, instrumentRpc } from "./arkiv-client";
 import { withRetry } from "./errors";
 import { publish } from "./events";
-import { ENTITY_TYPE } from "../constants";
+import { sealPayload } from "./crypto";
+import { requirePayloadKey } from "./payload-key";
+import { ENTITY_TYPE, SEALED_CONTENT_TYPE } from "../constants";
 
 /** Map a stamped `entityType` attribute to a Constellation tier (or undefined
  *  for non-memory entities like citation / state_root / listing / grant). */
@@ -114,4 +116,44 @@ export async function singleCreate(item: CortexCreate): Promise<{
     throw new Error("singleCreate: mutateEntities returned no entity keys");
   }
   return { txHash, entityKey };
+}
+
+// ---------------------------------------------------------------------------
+// Sealed memory writes — the encryption-at-rest chokepoint.
+//
+// Memory entities (observation / episode / rule) are the only payloads recall
+// scores, and the only ones we encrypt: the RaBitQ/rule bytes are sealed with
+// the wallet-derived key (src/lib/payload-key.ts) and stamped SEALED_CONTENT_TYPE
+// so the chain holds ciphertext. recall (src/darwinian/recall.ts) decrypts in RAM
+// after reading the local mirror. Non-memory writes (citation, state_root, market
+// listing/grant) keep using singleCreate/batchCreate directly and stay plaintext.
+//
+// The original contentType is intentionally replaced by SEALED_CONTENT_TYPE; the
+// `entityType` attribute (stamped by callers) remains the type-of-record.
+// ---------------------------------------------------------------------------
+
+/** Create one sealed memory entity. Throws if no wallet key is available. */
+export async function createMemory(item: CortexCreate): Promise<{
+  txHash: Hex;
+  entityKey: Hex;
+}> {
+  const key = await requirePayloadKey();
+  const sealed = await sealPayload(key, item.payload);
+  return singleCreate({ ...item, payload: sealed, contentType: SEALED_CONTENT_TYPE });
+}
+
+/** Batch-create sealed memory entities (one tx). Throws if no wallet key is available. */
+export async function createMemories(items: CortexCreate[]): Promise<BatchCreateResult> {
+  if (items.length === 0) {
+    throw new Error("createMemories called with empty items array");
+  }
+  const key = await requirePayloadKey();
+  const sealedItems = await Promise.all(
+    items.map(async (it) => ({
+      ...it,
+      payload: await sealPayload(key, it.payload),
+      contentType: SEALED_CONTENT_TYPE,
+    })),
+  );
+  return batchCreate(sealedItems);
 }
