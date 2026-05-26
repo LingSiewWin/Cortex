@@ -8,8 +8,12 @@
  * identically. Because this runs INSIDE the dashboard server process, the
  * events it publishes reach the /sse stream and light up every surface.
  *
+ * Optimistic buffering: a cite commits scoring locally and enqueues the
+ * on-chain work to the outbox, so this returns immediately with a queue id —
+ * the tx hashes + citation entity key arrive later via the anchor worker.
+ *
  * Responses:
- *   200 { query, candidateCount, selected, cited, txHashes, citationEntityKey, stateRootAnchor }
+ *   200 { query, candidateCount, selected, cited, status, outboxId, citationPayloadHashHex }
  *   400 invalid body
  *   402 allowance exhausted / insufficient funds
  *   500 unexpected
@@ -145,9 +149,10 @@ export async function handleManualCitation(
       candidateCount: cycle.hits.length,
       selected: cycle.selected,
       cited: cycle.act !== null,
-      txHashes: cycle.act?.txHashes ?? [],
-      citationEntityKey: cycle.act?.citationEntityKey ?? null,
-      stateRootAnchor: cycle.act?.stateRootAnchor ?? null,
+      // Optimistic: on-chain work is queued; the worker anchors it shortly.
+      status: cycle.act?.status ?? "noop",
+      outboxId: cycle.act?.outboxId ?? null,
+      citationPayloadHashHex: cycle.act?.citationPayloadHashHex ?? null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

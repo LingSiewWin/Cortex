@@ -42,9 +42,9 @@ function stubActResult(citations: Hex[]): ActResult {
     citations,
     extendedKeys: citations,
     promotedKeys: [],
-    txHashes: ["0xtx"],
-    citationEntityKey: ("0x" + "c".repeat(64)) as Hex,
-    stateRootAnchor: null,
+    status: "queued",
+    outboxId: 1,
+    citationPayloadHashHex: ("0x" + "c".repeat(64)) as Hex,
   };
 }
 

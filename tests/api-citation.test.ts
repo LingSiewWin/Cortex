@@ -34,9 +34,9 @@ function actResult(): ActResult {
     citations: [KEY],
     extendedKeys: [KEY],
     promotedKeys: [],
-    txHashes: ["0xtx1", "0xtx2"],
-    citationEntityKey: KEY,
-    stateRootAnchor: null,
+    status: "queued",
+    outboxId: 7,
+    citationPayloadHashHex: ("0x" + "cc".repeat(32)) as Hex,
   };
 }
 
@@ -61,20 +61,22 @@ const okDeps = {
 describe("manual citation endpoint", () => {
   beforeEach(() => _resetSpendGuard());
 
-  test("valid query → 200 with tx hashes + citation key", async () => {
+  test("valid query → 200 with queued status + outbox id", async () => {
     const res = await handleManualCitation(req({ query: "reentrancy" }), okDeps);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       query: string;
       cited: boolean;
-      txHashes: string[];
-      citationEntityKey: string;
+      status: string;
+      outboxId: number;
+      citationPayloadHashHex: string;
       candidateCount: number;
     };
     expect(body.query).toBe("reentrancy");
     expect(body.cited).toBe(true);
-    expect(body.txHashes).toEqual(["0xtx1", "0xtx2"]);
-    expect(body.citationEntityKey).toBe(KEY);
+    expect(body.status).toBe("queued");
+    expect(body.outboxId).toBe(7);
+    expect(body.citationPayloadHashHex).toBe(("0x" + "cc".repeat(32)));
     expect(body.candidateCount).toBe(1);
   });
 
@@ -109,9 +111,10 @@ describe("manual citation endpoint", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { cited: boolean; txHashes: string[] };
+    const body = (await res.json()) as { cited: boolean; status: string; outboxId: number | null };
     expect(body.cited).toBe(false);
-    expect(body.txHashes).toEqual([]);
+    expect(body.status).toBe("noop");
+    expect(body.outboxId).toBeNull();
   });
 
   test("allowance error → 402", async () => {

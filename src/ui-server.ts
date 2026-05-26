@@ -24,7 +24,7 @@
 
 import landingHtml from "../ui/index.html";
 import consoleHtml from "../ui/console.html";
-import { initMirrorDb } from "./mirror/db";
+import { initMirrorDb, getCitationRows, type CitationRow } from "./mirror/db";
 import {
   handlePlaygroundEncode,
   handlePlaygroundRecall,
@@ -48,6 +48,11 @@ import {
   handleLoopStatus,
   handleLoopControl,
 } from "./agent/loop-singleton";
+import { startAnchorWorker, type AnchorWorkerHandle } from "./agent/anchor-worker";
+import { sampleChainHead } from "./mirror/chain-health";
+
+/** Held at module scope so the background anchor worker isn't GC'd while the server runs. */
+let _anchorWorker: AnchorWorkerHandle | null = null;
 import {
   listMirroredEntities,
   getMirroredEntity,
@@ -91,6 +96,15 @@ export interface MemorySummary {
   state: "live" | "deleted" | "expired";
   lastEventBlock: number;
   lastEventType: string;
+  // --- Darwinian reinforcement (from citation_counts; 0/baseline if uncited) ---
+  /** Total citations across all sessions. */
+  citationCount: number;
+  /** Distinct sessions that cited it. */
+  distinctSessions: number;
+  /** Tier it was promoted to (episode/rule), or null. The real tier signal. */
+  promotedTo: "episode" | "rule" | null;
+  /** Evolved SEDM utility weight (1.0 = neutral). */
+  weight: number;
 }
 
 export interface DecisionRecord {
@@ -155,10 +169,23 @@ function nominalLifespanSeconds(tier: MemoryTier): number {
   }
 }
 
-function summariseMemory(entity: MirroredEntity, currentBlock: number): MemorySummary {
+function summariseMemory(
+  entity: MirroredEntity,
+  currentBlock: number,
+  citation?: CitationRow,
+): MemorySummary {
   const entityType =
     (findAttr(entity, "entityType") as string | undefined) ?? null;
-  const tier = classifyTier(entityType);
+  // Effective tier: promotion is recorded in citation_counts, NOT written back
+  // to the on-chain entityType attribute, so promotedTo is the source of truth.
+  // A heavily-cited observation promoted to "rule" must display as a rule, not
+  // as working-tier.
+  const tier: MemoryTier =
+    citation?.promotedTo === "rule"
+      ? "rule"
+      : citation?.promotedTo === "episode"
+        ? "episodic"
+        : classifyTier(entityType);
   const lifespanSeconds = nominalLifespanSeconds(tier);
   const blocksRemaining = Math.max(0, entity.expiresAtBlock - currentBlock);
   const remainingSeconds = blocksRemaining * BRAGA.blockTimeSeconds;
@@ -183,7 +210,21 @@ function summariseMemory(entity: MirroredEntity, currentBlock: number): MemorySu
     state: entity.state,
     lastEventBlock: entity.lastEventBlock,
     lastEventType: entity.lastEventType,
+    citationCount: citation?.count ?? 0,
+    distinctSessions: citation?.distinctSessions ?? 0,
+    promotedTo: citation?.promotedTo ?? null,
+    weight: citation?.weight ?? 1.0,
   };
+}
+
+/** A memory the user actually owns — observation/episode/rule, not plumbing. */
+function isMemoryEntity(entity: MirroredEntity): boolean {
+  const t = findAttr(entity, "entityType");
+  return (
+    t === ENTITY_TYPE.OBSERVATION ||
+    t === ENTITY_TYPE.EPISODE ||
+    t === ENTITY_TYPE.RULE
+  );
 }
 
 function decodePayloadJson(payload: Uint8Array | null): unknown {
@@ -399,9 +440,18 @@ export async function handleMemoriesRequest(req: Request): Promise<Response> {
     ...(owner ? { owner } : {}),
   });
 
-  const cortexOnly = entities.filter(isCortexEntity);
+  // Real memories only — observation/episode/rule. Citation, state_root,
+  // listing and grant entities are internal plumbing, not "memories", and were
+  // previously dumped into this view as tier "other" (drowning the real ones).
+  const memoryEntities = entities.filter((e) => isCortexEntity(e) && isMemoryEntity(e));
   const currentBlock = await getCurrentBlockEstimate();
-  let memories = cortexOnly.map((e) => summariseMemory(e, currentBlock));
+  // Join citation_counts so tier reflects real promotions + each memory carries
+  // its citation count and evolved weight (the visible Darwinian signal).
+  const db = await initMirrorDb();
+  const citations = getCitationRows(db, memoryEntities.map((e) => e.entityKey));
+  let memories = memoryEntities.map((e) =>
+    summariseMemory(e, currentBlock, citations.get(e.entityKey)),
+  );
   if (entityType) memories = memories.filter((m) => m.entityType === entityType);
 
   // Bucket counts
@@ -871,6 +921,13 @@ const PORT = Number(process.env.DASHBOARD_PORT ?? 3000);
 const isEntry = import.meta.main;
 
 if (isEntry) {
+  // Bun's dev mode injects a full-screen runtime error overlay that captures
+  // ANY uncaught error/rejection on the page — including ones thrown *inside*
+  // the user's wallet extensions (MetaMask/Phantom/Rabby fighting over
+  // window.ethereum). That makes harmless extension noise look like Cortex
+  // crashed. So the overlay + HMR are OPT-IN for active development; the
+  // default (and demo) serve is clean even with conflicting wallets installed.
+  const DEV_OVERLAY = process.env.CORTEX_DEV === "1";
   const server = Bun.serve({
     port: PORT,
     routes: {
@@ -926,14 +983,9 @@ if (isEntry) {
       // Silence the favicon 404 so a judge's DevTools console stays clean.
       "/favicon.ico": () => new Response(null, { status: 204 }),
     },
-    development: {
-      hmr: true,
-      // Bun's `development.console: true` mirrors *every* browser console line
-      // (including chatter from competing wallet extensions like Backpack/Phantom
-      // trying to clobber window.ethereum) into our terminal. Disabled — open
-      // browser DevTools if you actually need to see client logs.
-      console: false,
-    },
+    // Overlay + HMR only when CORTEX_DEV=1. Default false → no dev overlay, so
+    // wallet-extension errors never render as a fake "Cortex crashed" screen.
+    development: DEV_OVERLAY ? { hmr: true, console: false } : false,
     fetch() {
       return new Response("not found", { status: 404 });
     },
@@ -959,6 +1011,32 @@ if (isEntry) {
       // eslint-disable-next-line no-console
       console.warn(
         `[cortex/ui] autonomous loop failed to start: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  // Optimistic Memory Buffering — start the anchor worker IN THIS PROCESS so the
+  // bundles act() enqueues (loop + manual cites) actually drain to Braga. It's
+  // the SOLE session-key writer, which also serializes nonces. Drains back off
+  // automatically while Braga is down; kill-switch: CORTEX_ANCHOR_WORKER=off.
+  if (process.env.CORTEX_ANCHOR_WORKER !== "off") {
+    try {
+      // Health-adaptive: a light head sampler (3 quick polls) lets the worker
+      // skip draining when Braga is STALLED and slow down when the RPC pool is
+      // DEGRADED — so it never burns gas/nonces against a frozen or inconsistent chain.
+      _anchorWorker = startAnchorWorker({
+        sampleHealth: () => sampleChainHead({ samples: 3, gapMs: 200 }),
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[cortex/ui] anchor worker started — health-adaptive drain to Braga (set CORTEX_ANCHOR_WORKER=off to disable)`,
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[cortex/ui] anchor worker failed to start: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
