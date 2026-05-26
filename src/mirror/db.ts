@@ -45,8 +45,172 @@ export async function initMirrorDb(path?: string): Promise<Database> {
   // so we use PRAGMA table_info to detect.
   migrateAddPayloadHash(db);
   migrateAddUtilityWeights(db);
+  migrateAddOutbox(db);
   _db = db;
   return db;
+}
+
+/**
+ * Optimistic Memory Buffering migration: the durable outbound write queue +
+ * the `verified`/`anchored_root` reconciliation columns. Idempotent — the table
+ * uses IF NOT EXISTS and the columns are PRAGMA-guarded.
+ *
+ * The outbox decouples the agent's fast local loop from Braga's block time:
+ * act() writes scores locally + enqueues the on-chain bundle here; a background
+ * worker drains it (the single serialized writer — also kills nonce contention)
+ * and stamps the rows verified when the anchor lands.
+ */
+function migrateAddOutbox(db: Database): void {
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS outbox (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+      "kind TEXT NOT NULL, " +
+      "payload_json TEXT NOT NULL, " +
+      "status TEXT NOT NULL DEFAULT 'pending', " + // pending | sent | failed
+      "attempts INTEGER NOT NULL DEFAULT 0, " +
+      "last_error TEXT, " +
+      "created_at_ms INTEGER NOT NULL, " +
+      "sent_tx_hashes TEXT, " + // JSON array, set on success
+      "citation_entity_key TEXT, " + // set on success
+      "reconciled_at_ms INTEGER" +
+      ");",
+  );
+  db.exec("CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status, id);");
+  const cols = db.prepare("PRAGMA table_info(citation_counts)").all() as Array<{ name: string }>;
+  const have = new Set(cols.map((c) => c.name));
+  if (!have.has("verified")) {
+    db.exec("ALTER TABLE citation_counts ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;");
+  }
+  if (!have.has("anchored_root")) {
+    db.exec("ALTER TABLE citation_counts ADD COLUMN anchored_root TEXT;");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Outbox accessors (Optimistic Memory Buffering)
+// ---------------------------------------------------------------------------
+
+/** The on-chain work act() defers to the anchor worker. */
+export interface OutboxBundle {
+  action: string;
+  citations: string[];
+  reinforceItems: { entityKey: string; reinforcementSeconds: number }[];
+  promotionsToEpisode: string[];
+  userPrimaryEOA: string;
+  /** Exact citation payload bytes (incl. scores), hex-encoded; its hash = MMR leaf. */
+  citationPayloadHex: string;
+  citationAttributes: { key: string; value: string | number }[];
+  /** keccak256 of the payload bytes; appended to the MMR by the anchor worker at drain time (act() does NOT touch the MMR). */
+  citationPayloadHashHex: string;
+}
+
+export interface OutboxRow {
+  id: number;
+  kind: string;
+  bundle: OutboxBundle;
+  status: "pending" | "sent" | "failed";
+  attempts: number;
+  lastError: string | null;
+  createdAtMs: number;
+  sentTxHashes: string[] | null;
+  citationEntityKey: string | null;
+  reconciledAtMs: number | null;
+}
+
+interface RawOutboxRow {
+  id: number;
+  kind: string;
+  payload_json: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at_ms: number;
+  sent_tx_hashes: string | null;
+  citation_entity_key: string | null;
+  reconciled_at_ms: number | null;
+}
+
+function rowToOutbox(r: RawOutboxRow): OutboxRow {
+  return {
+    id: r.id,
+    kind: r.kind,
+    bundle: JSON.parse(r.payload_json) as OutboxBundle,
+    status: r.status as OutboxRow["status"],
+    attempts: r.attempts,
+    lastError: r.last_error,
+    createdAtMs: r.created_at_ms,
+    sentTxHashes: r.sent_tx_hashes ? (JSON.parse(r.sent_tx_hashes) as string[]) : null,
+    citationEntityKey: r.citation_entity_key,
+    reconciledAtMs: r.reconciled_at_ms,
+  };
+}
+
+/** Enqueue a bundle for the anchor worker. Returns the new row id. */
+export function enqueueOutbox(db: Database, kind: string, bundle: OutboxBundle): number {
+  const res = db
+    .prepare("INSERT INTO outbox (kind, payload_json, status, created_at_ms) VALUES (?, ?, 'pending', ?)")
+    .run(kind, JSON.stringify(bundle), Date.now());
+  return Number(res.lastInsertRowid);
+}
+
+/** Pending bundles, oldest first — FIFO drain so on-chain order matches act order. */
+export function listPendingOutbox(db: Database, limit = 50): OutboxRow[] {
+  const rows = db
+    .prepare("SELECT * FROM outbox WHERE status = 'pending' ORDER BY id ASC LIMIT ?")
+    .all(limit) as RawOutboxRow[];
+  return rows.map(rowToOutbox);
+}
+
+/** Mark a bundle successfully anchored (records tx hashes + the citation entity key). */
+export function markOutboxSent(
+  db: Database,
+  id: number,
+  txHashes: string[],
+  citationEntityKey: string | null,
+): void {
+  db.prepare(
+    "UPDATE outbox SET status='sent', sent_tx_hashes=?, citation_entity_key=?, reconciled_at_ms=? WHERE id=?",
+  ).run(JSON.stringify(txHashes), citationEntityKey, Date.now(), id);
+}
+
+/** Record a failed drain attempt — the bundle stays 'pending' for retry. */
+export function markOutboxFailed(db: Database, id: number, error: string): void {
+  db.prepare("UPDATE outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?").run(
+    error.slice(0, 500),
+    id,
+  );
+}
+
+/**
+ * Dead-letter a bundle that has exhausted its retry budget (or is permanently
+ * malformed): status='failed' so listPendingOutbox skips it — this is what stops
+ * one poisoned bundle from head-of-line-blocking the whole queue forever, and
+ * caps wasted gas re-broadcasting a reverting tx. Surfaced via countOutbox('failed').
+ */
+export function markOutboxDead(db: Database, id: number, error: string): void {
+  db.prepare(
+    "UPDATE outbox SET status='failed', last_error=?, reconciled_at_ms=? WHERE id=?",
+  ).run(error.slice(0, 500), Date.now(), id);
+}
+
+/** Count outbox rows by status (default: all) — feeds "N formed / M anchored". */
+export function countOutbox(db: Database, status?: "pending" | "sent" | "failed"): number {
+  const row = status
+    ? (db.prepare("SELECT count(*) AS c FROM outbox WHERE status = ?").get(status) as { c: number })
+    : (db.prepare("SELECT count(*) AS c FROM outbox").get() as { c: number });
+  return row.c;
+}
+
+/** Mark memories cryptographically verified (their anchor landed) + record the root. */
+export function markVerified(
+  db: Database,
+  entityKeys: readonly string[],
+  anchoredRoot: string,
+): void {
+  const stmt = db.prepare(
+    "UPDATE citation_counts SET verified = 1, anchored_root = ? WHERE entity_key = ?",
+  );
+  for (const k of entityKeys) stmt.run(anchoredRoot, k);
 }
 
 /**
@@ -100,6 +264,62 @@ export function getMemoryWeights(
   for (const k of entityKeys) {
     const row = stmt.get(k) as { weight: number | null } | null;
     out.set(k, row && row.weight !== null && Number.isFinite(row.weight) ? row.weight : fallback);
+  }
+  return out;
+}
+
+/** Full Darwinian record for a memory, as tracked in `citation_counts`. */
+export interface CitationRow {
+  /** Total citations across all sessions. */
+  count: number;
+  /** Distinct sessions that cited it (tier-promotion signal). */
+  distinctSessions: number;
+  /** Tier it has been promoted to, or null if still working-tier. */
+  promotedTo: "episode" | "rule" | null;
+  /** Evolved SEDM utility weight (1.0 = neutral baseline). */
+  weight: number;
+  /** Epoch ms of the last citation. */
+  lastCitedMs: number | null;
+}
+
+/**
+ * Batch-read the citation_counts record for a set of memories. Used by the
+ * dashboard API to surface each memory's *real* tier (`promotedTo`) and
+ * reinforcement (`count`, `weight`) — the on-chain entityType attribute is NOT
+ * updated on promotion, so this table is the source of truth for tier.
+ * Keys with no citations are simply absent from the returned map.
+ */
+export function getCitationRows(
+  db: Database,
+  entityKeys: readonly string[],
+): Map<string, CitationRow> {
+  const out = new Map<string, CitationRow>();
+  if (entityKeys.length === 0) return out;
+  const stmt = db.prepare(
+    "SELECT count, distinct_sessions, promoted_to, weight, last_cited_ms " +
+      "FROM citation_counts WHERE entity_key = ?",
+  );
+  for (const k of entityKeys) {
+    const row = stmt.get(k) as
+      | {
+          count: number | null;
+          distinct_sessions: number | null;
+          promoted_to: string | null;
+          weight: number | null;
+          last_cited_ms: number | null;
+        }
+      | null;
+    if (!row) continue;
+    out.set(k, {
+      count: row.count ?? 0,
+      distinctSessions: row.distinct_sessions ?? 0,
+      promotedTo:
+        row.promoted_to === "episode" || row.promoted_to === "rule"
+          ? row.promoted_to
+          : null,
+      weight: row.weight !== null && Number.isFinite(row.weight) ? row.weight : 1.0,
+      lastCitedMs: row.last_cited_ms ?? null,
+    });
   }
   return out;
 }

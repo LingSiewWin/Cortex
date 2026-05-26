@@ -29,6 +29,15 @@ import { publish } from "../lib/events";
 
 let _mmr: MMR | undefined;
 let _initPromise: Promise<MMR> | undefined;
+/**
+ * Leaf-hash → leafIndex of every leaf already in the MMR. Makes appendToStateMMR
+ * IDEMPOTENT: the anchor worker appends a citation leaf at drain time, and the
+ * mirror daemon later re-observes that same on-chain CITATION entity and would
+ * append it again — without this guard the leaf lands twice (different positions)
+ * and the live root diverges from any rebuilt root. Citation payloads embed a
+ * unique observedAtMs, so identical hashes are genuine re-appends, not collisions.
+ */
+let _appendedIndex: Map<string, number> = new Map();
 
 /**
  * Get the process-wide MMR instance, building it from SQLite on first call.
@@ -40,11 +49,15 @@ export async function getStateMMR(): Promise<MMR> {
   _initPromise = (async () => {
     const db = await initMirrorDb();
     const mmr = new MMR();
+    _appendedIndex = new Map();
     const leaves = listLeafHashesInOrder(db);
     for (const leaf of leaves) {
+      const norm = leaf.payloadHash.toLowerCase();
+      if (_appendedIndex.has(norm)) continue; // dedup on rebuild too
       const bytes = hexToBytes32(leaf.payloadHash);
       if (!bytes) continue; // skip malformed
-      mmr.append(bytes);
+      const { leafIndex } = mmr.append(bytes);
+      _appendedIndex.set(norm, leafIndex);
     }
     _mmr = mmr;
     return mmr;
@@ -63,6 +76,8 @@ export async function appendToStateMMR(payloadHashHex: Hex): Promise<{
   leafIndex: number;
   newRoot: Hex;
   leafCount: number;
+  /** true when the leaf was already present and this call was a no-op (idempotent). */
+  deduped?: boolean;
 }> {
   const mmr = await getStateMMR();
   const bytes = hexToBytes32(payloadHashHex);
@@ -71,7 +86,16 @@ export async function appendToStateMMR(payloadHashHex: Hex): Promise<{
       `appendToStateMMR: invalid hash ${payloadHashHex} (expected 32-byte 0x hex)`,
     );
   }
+  // Idempotent: a leaf appended by the anchor worker must not be re-appended when
+  // the daemon later syncs the same CITATION entity (or when a failed bundle is
+  // retried). Return the existing position without mutating the tree or emitting.
+  const norm = payloadHashHex.toLowerCase();
+  const existing = _appendedIndex.get(norm);
+  if (existing !== undefined) {
+    return { leafIndex: existing, newRoot: mmr.getRootHex(), leafCount: mmr.size(), deduped: true };
+  }
   const { leafIndex } = mmr.append(bytes);
+  _appendedIndex.set(norm, leafIndex);
   const newRoot = mmr.getRootHex();
   const leafCount = mmr.size();
   // Emit on the live spine. We instrument HERE (the singleton wrapper) rather
@@ -135,6 +159,7 @@ export async function getRecentStateRoots(
 export function resetStateMMRForTests(): void {
   _mmr = undefined;
   _initPromise = undefined;
+  _appendedIndex = new Map();
 }
 
 // ---------------------------------------------------------------------------

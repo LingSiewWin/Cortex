@@ -111,7 +111,12 @@ CREATE TABLE IF NOT EXISTS citation_counts (
   weight            REAL NOT NULL DEFAULT 1.0,
   last_weight_ms    INTEGER,
   audit_s           REAL,
-  audit_epoch       INTEGER
+  audit_epoch       INTEGER,
+  -- Optimistic Memory Buffering reconciliation: set when the memory's act_bundle
+  -- drains and its citation leaf is anchored. Until then the score is committed
+  -- locally but not yet cryptographically anchored ("formed, not yet anchored").
+  verified          INTEGER NOT NULL DEFAULT 0,
+  anchored_root     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_citation_counts_count    ON citation_counts(count);
@@ -158,6 +163,33 @@ CREATE TABLE IF NOT EXISTS state_roots (
 
 CREATE INDEX IF NOT EXISTS idx_state_roots_leaf_count ON state_roots(leaf_count);
 CREATE INDEX IF NOT EXISTS idx_state_roots_anchored ON state_roots(anchored_at_block);
+
+-- ===========================================================================
+-- Optimistic Memory Buffering — durable outbound write queue
+--
+-- act() commits scoring locally + enqueues one `act_bundle` row here, then
+-- returns (no chain await). The anchor worker (src/agent/anchor-worker.ts) — the
+-- single serialized writer — drains pending rows oldest-first against Braga:
+-- extend -> promote -> write CITATION -> MMR append -> anchor. On success the
+-- row goes status='sent' with its tx hashes + citation entity key; on failure it
+-- stays 'pending' (attempts++) for retry. SQLite-backed so a restart resumes
+-- draining — buffered memories are never lost, just unanchored until Braga is up.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS outbox (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind                TEXT NOT NULL,                 -- 'act_bundle'
+  payload_json        TEXT NOT NULL,                 -- serialized OutboxBundle
+  status              TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'sent' | 'failed'
+  attempts            INTEGER NOT NULL DEFAULT 0,
+  last_error          TEXT,
+  created_at_ms       INTEGER NOT NULL,
+  sent_tx_hashes      TEXT,                          -- JSON array, set on success
+  citation_entity_key TEXT,                          -- set on success
+  reconciled_at_ms    INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status, id);
 
 -- Synaptic Market — persisted per-listing decryption keys.
 --
