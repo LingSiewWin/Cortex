@@ -1,0 +1,249 @@
+/* ===========================================================================
+ *  CortexFooter — liquid-glass panel over a dimmed cosmic loop.
+ *
+ *  Self-contained under `.cxf`: dark + atmospheric regardless of whether it
+ *  sits on the light landing or the dark console. Inter for display, JetBrains
+ *  Mono for the ASCII trees + micro-labels (both already linked in the host
+ *  HTML). One accent: the ember used across the rest of the product.
+ * =========================================================================== */
+
+.cxf {
+  --cxf-ink: #f4f4f6;
+  --cxf-muted: rgba(255, 255, 255, 0.46);
+  --cxf-ember: #ff5a00;
+  --cxf-font: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --cxf-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* the top padding doubles as a fade zone, so the gradient melt below lives
+   * entirely above the glass panel (never washes over it) */
+  --cxf-pad-top: clamp(110px, 17vh, 210px);
+
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: #060809;
+  color: var(--cxf-ink);
+  font-family: var(--cxf-font);
+  padding: var(--cxf-pad-top) clamp(16px, 5vw, 64px) clamp(28px, 4vw, 44px);
+  isolation: isolate;
+}
+.cxf * {
+  box-sizing: border-box;
+}
+
+/* Smooth melt from the section above into the dark footer. `--cxf-fade-from`
+ * is set by the host: the landing (.cx) fades from paper white; the console
+ * leaves it transparent since dark-on-dark is already seamless. */
+.cxf::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--cxf-pad-top);
+  background: linear-gradient(
+    to bottom,
+    var(--cxf-fade-from, transparent) 0%,
+    color-mix(in srgb, var(--cxf-fade-from, transparent) 55%, transparent) 32%,
+    transparent 100%
+  );
+  z-index: 0;
+  pointer-events: none;
+}
+/* landing scopes the fade to its paper colour */
+.cx .cxf {
+  --cxf-fade-from: #fcfcfc;
+}
+
+/* dimmed, blurred still of the cosmic scene — a light stand-in for the hero
+ * loop so the footer paints instantly */
+.cxf__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.06);
+  filter: blur(3px) saturate(0.85);
+  z-index: -2;
+  pointer-events: none;
+}
+.cxf__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(6, 8, 9, 0.5), rgba(6, 8, 9, 0.86) 70%),
+    linear-gradient(to bottom, rgba(6, 8, 9, 0.7), rgba(6, 8, 9, 0.92));
+}
+
+/* --- the liquid glass panel (adapted from the reference spec) --- */
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.012);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.15) 80%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.cxf__glass {
+  max-width: 1120px;
+  margin: 0 auto;
+  border-radius: 24px;
+  padding: clamp(28px, 4vw, 48px);
+}
+
+/* --- top grid: brand (left) + link columns (right) --- */
+.cxf__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(28px, 4vw, 56px);
+  margin-bottom: 36px;
+}
+.cxf__wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.cxf__dot {
+  color: var(--cxf-ember);
+  font-size: 0.42em;
+  margin-left: 0.12em;
+  transform: translateY(-0.15em);
+}
+.cxf__tagline {
+  margin: 16px 0 0;
+  max-width: 30ch;
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--cxf-muted);
+}
+
+.cxf__cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+}
+.cxf-col__head {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--cxf-ink);
+  margin-bottom: 16px;
+}
+.cxf-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cxf-tree__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 2;
+}
+.cxf-tree__branch {
+  color: rgba(255, 255, 255, 0.28);
+  font-size: 12px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.cxf-tree__link {
+  font-size: 13px;
+  color: var(--cxf-muted);
+  text-decoration: none;
+  transition: color 200ms ease;
+}
+.cxf-tree__link:hover {
+  color: var(--cxf-ember);
+}
+
+/* --- bottom bar --- */
+.cxf__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.cxf__by {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.4);
+}
+.cxf__social {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.cxf__follow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.4);
+}
+.cxf__social a {
+  display: inline-flex;
+  color: rgba(255, 255, 255, 0.6);
+  transition: color 200ms ease, transform 200ms ease;
+}
+.cxf__social a:hover {
+  color: var(--cxf-ember);
+  transform: translateY(-2px);
+}
+
+/* shared mono helper (scoped — does not leak to host) */
+.cxf .mono {
+  font-family: var(--cxf-mono);
+}
+
+@media (max-width: 760px) {
+  .cxf__grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .cxf__cols {
+    gap: 20px;
+  }
+}
+@media (max-width: 460px) {
+  .cxf__cols {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cxf__social a {
+    transition: color 200ms ease;
+  }
+}
