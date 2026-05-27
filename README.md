@@ -11,6 +11,17 @@
 | **Source** | https://github.com/LingSiewWin/Cortex |
 | **Chain** | [Arkiv Braga testnet](https://explorer.braga.hoodi.arkiv.network/) · chainId `60138453102` |
 
+### For judges (start here)
+
+| Doc | Purpose |
+|-----|---------|
+| **[docs/submission/SUBMISSION.md](./docs/submission/SUBMISSION.md)** | Theme, links, elevator pitch, entity types |
+| **[docs/submission/JUDGES.md](./docs/submission/JUDGES.md)** | 5-minute code tour + repo map |
+| **[docs/submission/pitch.md](./docs/submission/pitch.md)** | 3-minute demo script |
+| **[docs/submission/JUDGE_DEFENSE.md](./docs/submission/JUDGE_DEFENSE.md)** | Q&A (ERC skips, market honesty, vs MemGPT) |
+
+One repo — not a monorepo. `app/` + `src/` + `cortex-plugin/` ship together.
+
 ---
 
 ## What it does
@@ -50,13 +61,14 @@ bun run dev             # http://localhost:3000  →  /console
 | Script | Purpose |
 |--------|---------|
 | `bun run dev` | Next.js dev server (landing + console + `/api/*`) |
-| `bun run dev:bun` | Legacy Bun HTML-import server (`src/ui-server.ts`) |
 | `bun run build` / `start` | Production Next.js |
 | `bun test` | Full test suite (353+ tests) |
 | `bun run smoke` | Single real Braga create + read |
 | `bun run mirror` | Standalone mirror replay daemon |
 | `bun run mcp` | Cortex MCP server (stdio) |
 | `bun run build:plugin` | Bundle Claude Code plugin to `cortex-plugin/dist/` |
+
+See **[scripts/README.md](./scripts/README.md)** for the full script list (demos & eval are optional).
 
 > Run **`seed` before** starting the loop — seed and the autonomous agent share one session-key EOA; parallel writes collide on nonce.
 
@@ -79,70 +91,111 @@ bun run dev             # http://localhost:3000  →  /console
 
 ## Architecture
 
-How Cortex fits together — wallet roles, write/recall/reinforce, and decay on Arkiv. Renders on GitHub or [mermaid.live](https://mermaid.live).
+High-level flows on Arkiv Braga — straight-line `sequenceDiagram`s (renders on GitHub or [mermaid.live](https://mermaid.live)).
+
+### End-to-end
 
 ```mermaid
-flowchart TB
-  subgraph Owner["Your wallet · $owner"]
-    KD[SIWE · key derivation signature]
-    UP[Upload · sign Braga tx]
-    DEC[Decrypt on recall]
+sequenceDiagram
+  autonumber
+  participant UI as Browser /console
+  participant Wallet as Your wallet · $owner
+  participant API as Cortex /api
+  participant OR as OpenRouter / Cohere
+  participant Engine as RaBitQ · recall · seal
+  participant Mirror as SQLite mirror
+  participant Agent as Session key · $creator
+  participant Chain as Arkiv Braga
+  participant SSE as GET /sse
+
+  Note over UI,Chain: Write — wallet signs; 1h starting lease
+  UI->>API: POST /api/store-file/prepare
+  API->>OR: embedText(descriptor)
+  OR-->>API: 1536-d embedding
+  API-->>UI: RaBitQ + entity attributes
+  UI->>Wallet: sign key derivation
+  UI->>UI: AES-GCM seal(payload)
+  Wallet->>Chain: mutateEntities
+  Chain-->>Mirror: ingest events
+  Mirror-->>SSE: graph · RPC ticker
+
+  Note over Agent,Chain: Reinforce — cite in act() or memory decays
+  Agent->>Engine: recall(query, k)
+  Engine->>Mirror: hybrid rank
+  Engine->>Chain: query attributes
+  Engine-->>Agent: memory IDs
+  Agent->>Engine: act(action, citations[])
+  Engine->>Chain: extendEntity · remaining + 24h
+  Engine->>Chain: anchor MMR root
+  Engine-->>SSE: memory.cited · arkiv.rpc
+
+  Note over Chain: Uncited → expiration → L1Block eviction (free)
+```
+
+### Store a memory (browser wallet)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant UI as Browser /console
+  participant API as POST /api/store-file/prepare
+  participant OR as OpenRouter / Cohere
+  participant Wallet as MetaMask · Braga
+  participant Chain as Arkiv Braga
+
+  UI->>API: file + optional caption
+  API->>API: descriptor · filename · mime · sha256
+  API->>OR: embedText(descriptor)
+  alt missing OPENROUTER_API_KEY / COHERE_API_KEY
+    OR-->>API: 401 / embed error
+    Note over Chain: Never reached — no GLM spent yet
+  else key present
+    OR-->>API: 1536-d vector
+    API-->>UI: prepared payload + RaBitQ metadata
+    UI->>Wallet: sign CORTEX_KEY_DERIVATION
+    UI->>UI: seal ciphertext · wallet-derived key
+    Wallet->>Chain: mutateEntities · project=cortex-ethns-2026
+    Chain-->>UI: txHash · entityKey · 1h lease
+  end
+```
+
+### Recall → cite → extend (Darwinian loop)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant UI as Browser /console
+  participant API as POST /api/citation/manual
+  participant Loop as Session key loop · ~15s
+  participant Engine as recall() · act()
+  participant Mirror as SQLite mirror
+  participant Chain as Arkiv Braga
+  participant SSE as GET /sse
+
+  alt manual cite from console
+    UI->>API: { query }
+    API->>Engine: runCiteCycle(query)
+  else autonomous loop
+    Loop->>Engine: runCiteCycle(query)
   end
 
-  subgraph Console["Console /console"]
-    UI[Topology graph · upload · manual cite]
-    SSE[SSE live events]
+  Engine->>Mirror: RaBitQ distance + attributes
+  Engine->>Chain: query live entities · $creator filter
+  Engine-->>SSE: recall.completed
+
+  alt no hits
+    Note over Chain: skip act — nothing to extend
+  else citations present
+    Engine->>Chain: extendEntity · newBtl = remaining + 24h
+    Engine->>Chain: anchor decision MMR root
+    Engine-->>Mirror: outbox · tier counters
+    Engine-->>SSE: memory.cited · arkiv.rpc
   end
-
-  subgraph Agent["Darwinian loop · $creator session key"]
-    REC["recall(query, k)"]
-    ACT["act(action, citations[])"]
-    EXT["extend · remaining + 24h"]
-  end
-
-  subgraph Engine["Cortex engine"]
-    RQ[Hybrid recall · RaBitQ + Arkiv attributes]
-    SEAL[Wallet-derived AES-GCM seal]
-    MIRROR[(SQLite mirror)]
-    PROOF[MMR decision anchors]
-  end
-
-  subgraph Arkiv["Arkiv Braga"]
-    MEM[Encrypted entities · 1h start]
-    LIFE[Working → Episodic → Semantic]
-    EVICT[Uncited · L1Block eviction]
-  end
-
-  UI --> UP
-  UI --> REC
-  UI --> SSE
-
-  KD --> SEAL
-  UP --> SEAL
-  SEAL --> MEM
-
-  REC --> RQ
-  RQ --> MIRROR
-  RQ --> MEM
-  DEC --> RQ
-
-  REC --> ACT
-  ACT --> EXT
-  EXT --> MEM
-  EXT --> LIFE
-  ACT --> PROOF
-  PROOF --> MEM
-  ACT --> SSE
-
-  LOOP((~15s tick)) --> REC
-
-  MEM -->|cited| EXT
-  MEM -->|never cited| EVICT
-  LIFE --> MEM
-  MIRROR -.replay.-> MEM
 ```
 
 **Ownership:** `$creator` = session key (attribution); `$owner` = your wallet (extend/update/delete). Reads filter by creator + `project=cortex-ethns-2026`.
+
+**Tiers:** working (1h) → episodic (≥2 cites, +7d) → semantic (≥5 cites · 3 sessions, 1y rule).
 
 **Extend math:** `newBtl = remaining + reinforcement` (strict increase — naïve `+24h` reverts when remaining > 24 h).
 
