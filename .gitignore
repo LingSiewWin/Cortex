@@ -1,9 +1,10 @@
 # dependencies (bun install)
 node_modules
 
-# output
-out
-dist
+# output (anchored to repo root so cortex-plugin/dist — the standalone plugin
+# bundles that MUST ship for marketplace installs — is NOT ignored)
+/out
+/dist
 *.tgz
 
 # code coverage
@@ -26,6 +27,16 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
+
+# Next.js
+.next/
+out/
+
+# Copied at build time from assets/ (see package.json build script)
+public/
+
+# Editor — local ports / machine-specific
+.vscode/
 
 # IntelliJ based IDEs
 .idea
@@ -54,3 +65,4 @@ cortex-console.png
 scripts/eval/.embed-cache.json
 
 scripts/eval/.unkillable-log.jsonl
+.vercel
