@@ -124,7 +124,9 @@ export async function handleAuthMe(_req: Request): Promise<Response> {
 
   if (!hasEmbeddingKey()) {
     uploadBlockers.push(
-      "Server embedding key missing — set OPENAI_API_KEY (or OPENROUTER / VOYAGE / COHERE).",
+      "Embeddings not configured on this server — add OPENROUTER_API_KEY or COHERE_API_KEY " +
+        "(or OPENAI_API_KEY / VOYAGE_API_KEY) to the repo .env for local dev, or Vercel → " +
+        "Project → Settings → Environment Variables, then redeploy.",
     );
   }
   if (!(process.env.SESSION_KEY_PRIVATE_KEY ?? readConfig()?.sessionKeyPrivate)) {

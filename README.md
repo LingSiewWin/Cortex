@@ -1,5 +1,7 @@
 # Cortex
 
+![Cortex landing page — Darwinian memory for AI agents on Arkiv Braga](./assets/landing-page.png)
+
 > **Darwinian memory for AI agents** — observations that earn longer expiration when
 > cited; useless ones decay for free on Arkiv. Encrypted at rest with a key derived
 > from your wallet. _(AI + Privacy · Arkiv × ETHNS Builder Challenge)_

@@ -305,10 +305,6 @@ function ConsoleApp() {
         >
           <div className="section">
             <div className="section-title">Store a file (wallet-signed)</div>
-            <div className="section-hint">
-              Text seals in full; images store sha256 + caption for recall. Requires a valid
-              embedding key in server <code>.env</code>.
-            </div>
             <WalletUpload
               onStored={() => {
                 void loadAll(effectiveOwner).then(setData);

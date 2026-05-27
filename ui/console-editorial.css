@@ -426,10 +426,35 @@ body:has(.cx-console) {
   color: var(--muted);
 }
 
-/* Footer is self-contained (.cxf) — never inherit console button chrome */
+/* Footer is self-contained (.cxf) — never inherit console paper/ink chrome */
 .cx-console .cxf button {
   all: unset;
   cursor: pointer;
+}
+
+/* `.cx-console a { color: var(--ink) }` wins over `.cxf-tree__link` — reset here */
+.cx-console .cxf a {
+  color: var(--cxf-ink);
+  text-decoration: none;
+}
+.cx-console .cxf .cxf-tree__link {
+  color: var(--cxf-ink);
+}
+.cx-console .cxf .cxf-tree__link:hover {
+  color: var(--cxf-ember);
+}
+.cx-console .cxf .cxf-col__head,
+.cx-console .cxf .cxf__wordmark {
+  color: var(--cxf-ink);
+}
+.cx-console .cxf .cxf__tagline {
+  color: var(--cxf-muted);
+}
+.cx-console .cxf .cxf__social a {
+  color: rgba(255, 255, 255, 0.72);
+}
+.cx-console .cxf .cxf__social a:hover {
+  color: var(--cxf-ember);
 }
 
 /* ===========================================================================

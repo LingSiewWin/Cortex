@@ -22,12 +22,15 @@
 import { embedAndQuantize } from "../src/compression/embeddings";
 import { singleCreate } from "../src/lib/batch-writer";
 import { recall } from "../src/darwinian/recall";
-import { act } from "../src/darwinian/citation";
+import { act, getCitationStats } from "../src/darwinian/citation";
 import { distillIfReady } from "../src/darwinian/distill";
 import { getUserPrimaryEOA } from "../src/lib/arkiv-client";
+import { getPayloadKey } from "../src/lib/payload-key";
 import { initMirrorDb } from "../src/mirror/db";
+import { hydrateEntityFromChain } from "../src/mirror/hydrate-one";
 import { ENTITY_TYPE, BRAGA, REINFORCEMENT } from "../src/constants";
 import { ExpirationTime } from "@arkiv-network/sdk/utils";
+import type { Hex } from "@arkiv-network/sdk";
 
 const OBS_TEXT =
   "When a token launch shows a freshly funded deployer, locked liquidity under 30 days, and no audit, treat it as high rug-pull risk and decline.";
@@ -37,10 +40,37 @@ function explorerTx(h: string): string {
   return `${BRAGA.explorer}tx/${h}`;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Recall until the fresh observation is in the candidate set (mirror / index lag). */
+async function recallIncludesObs(obsKey: Hex, attempts = 12): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    const hits = await recall({ query: QUERY, k: 10 });
+    if (hits.some((h) => h.entityKey === obsKey)) return;
+    await sleep(1500);
+  }
+  throw new Error(
+    `Observation ${obsKey.slice(0, 10)}… not returned by recall after ${attempts} tries. ` +
+      `Check OPENROUTER/COHERE embedding key and mirror hydration.`,
+  );
+}
+
 async function main(): Promise<void> {
   console.log("\n=== Cortex distill-run (RULE tier, real Braga) ===\n");
   await initMirrorDb();
   const userEOA = getUserPrimaryEOA();
+
+  const payloadKey = await getPayloadKey();
+  if (!payloadKey) {
+    console.error(
+      "❌ Missing encryption key. Run:\n" +
+        "   CORTEX_USER_PRIVATE_KEY=0x<primary> bun scripts/derive-user-signature.ts\n" +
+        "   then add CORTEX_USER_SIGNATURE=0x… to .env\n",
+    );
+    process.exit(1);
+  }
 
   // 1. Create the observation.
   console.log("[1] Creating observation…");
@@ -56,7 +86,10 @@ async function main(): Promise<void> {
     expiresInSeconds: ExpirationTime.fromMinutes(60),
   });
   console.log(`    ${obs.entityKey}`);
-  console.log(`    ${explorerTx(obs.txHash)}\n`);
+  console.log(`    ${explorerTx(obs.txHash)}`);
+
+  const hydrated = await hydrateEntityFromChain(obs.entityKey);
+  console.log(`    mirror hydrate: ${hydrated.status}\n`);
 
   // 2. Cite across distinct sessions until semantic-ready.
   //    promoteToSemantic citations across distinctSessionsForSemantic sessions.
@@ -68,23 +101,19 @@ async function main(): Promise<void> {
   console.log(
     `[2] Citing across ${sessions.length} sessions × ${citeRounds} rounds (thresholds: ${REINFORCEMENT.promoteToSemantic} cites / ${REINFORCEMENT.distinctSessionsForSemantic} sessions)…`,
   );
+  await recallIncludesObs(obs.entityKey);
+
   for (let i = 0; i < citeRounds; i++) {
     const sessionId = sessions[i % sessions.length]!;
-    // recall must run first so the citation validates against the last recall.
-    const hits = await recall({ query: QUERY, k: 5 });
-    const target = hits.find((h) => h.entityKey === obs.entityKey) ?? hits[0];
-    if (!target) {
-      console.error("    recall returned no hits — aborting");
-      process.exit(2);
-    }
+    await recall({ query: QUERY, k: 10 });
     const result = await act({
       action: `evaluate launch (round ${i + 1})`,
-      citations: [target.entityKey],
+      citations: [obs.entityKey],
       userPrimaryEOA: userEOA,
       sessionId,
     });
     console.log(
-      `    round ${i + 1} [${sessionId}] cited ${target.entityKey.slice(0, 10)}… promoted=${result.promotedKeys.length > 0}`,
+      `    round ${i + 1} [${sessionId}] cited ${obs.entityKey.slice(0, 10)}… promoted=${result.promotedKeys.length > 0}`,
     );
   }
 
@@ -95,18 +124,22 @@ async function main(): Promise<void> {
   );
   const distilled = await distillIfReady({
     userPrimaryEOA: userEOA,
-    ...(hasKey
-      ? {}
-      : {
-          _deps: {
+    _deps: {
+      // Only distill the observation we just cited — skip stale mirror rows.
+      listReady: async () => {
+        const stats = await getCitationStats(obs.entityKey);
+        return stats?.promotedTo === "rule" ? [stats] : [];
+      },
+      ...(hasKey
+        ? {}
+        : {
             callLlm: async (prompt: string) => {
-              // Deterministic offline distillation: extract the policy sentence.
               const firstSnippet =
                 prompt.split("[1]")[1]?.split("\n")[0]?.trim() ?? OBS_TEXT;
               return `Rule: ${firstSnippet.slice(0, 200)}`;
             },
-          },
-        }),
+          }),
+    },
   });
 
   if (!distilled) {
@@ -114,7 +147,7 @@ async function main(): Promise<void> {
       "\n❌ distillIfReady returned null — the memory did not reach the semantic threshold.",
     );
     console.error(
-      "   (Check REINFORCEMENT thresholds + that recall returned the seeded observation.)",
+      `   (Check REINFORCEMENT thresholds + citation stats for ${obs.entityKey.slice(0, 10)}….)`,
     );
     process.exit(3);
   }
