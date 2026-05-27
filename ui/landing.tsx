@@ -1,49 +1,26 @@
 "use client";
 
 /**
- * Cortex — public landing page (Road A).
+ * Cortex — public landing page.
  *
- * Editorial / gallery direction: a full-bleed cinematic hero video, monochrome
- * white display type, mono micro-labels, then off-white content bands and one
- * dark "memory lifecycle" band. Live chain numbers (gas, memories alive,
- * compression) are pulled from /api so the page is a live instrument, not a
- * static brochure. "Open Console →" routes to /console for the working app.
- *
- * Plain CSS (ui/landing-editorial.css) + framer-motion. No Tailwind, no 3D —
- * the hero is the provided cinematic loop.
+ * Editorial hero + product-accurate copy. Landing shows static Braga economics
+ * framing plus live RaBitQ compression from /api/economics — not per-visitor
+ * memory counts.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatGlm } from "./format";
 import CortexFooter from "./components/CortexFooter";
-
-interface EconomicsResponse {
-  totalGasUnits: number;
-  totalGasCostWei: string;
-  entityCount: number;
-  avgGasPerMemory: number;
-  rawBytesEstimate: number;
-  storedBytesEstimate: number;
-  compressionRatio: number;
-  uncompressedGasCostWei: string;
-  monthlyProjectionWei: string;
-}
-
-interface MemoriesResponse {
-  currentBlock: number;
-  counts: {
-    total: number;
-    working: number;
-    episodic: number;
-    rule: number;
-    other: number;
-  };
-}
+import { BRAGA } from "@/src/constants";
 
 const VIDEO_SRC = "/assets/landing-video.mp4";
 
-// ── motion variants ──────────────────────────────────────────────────────
+interface EconomicsResponse {
+  rawBytesEstimate: number;
+  storedBytesEstimate: number;
+  compressionRatio: number;
+}
+
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 const letterBlock = {
@@ -56,27 +33,26 @@ const fadeUp = {
   animate: { opacity: 1, y: 0 },
 };
 
-// ── the four memory tiers (real Cortex model — see CLAUDE.md) ─────────────
 const TIERS = [
   {
     name: "Working",
     meta: "01 · 1-hour lease",
-    desc: "Every fresh observation lands here, RaBitQ-compressed and written to Arkiv with a one-hour starting lease. Cheap to make, cheap to lose — most of these will quietly evict.",
+    desc: "New observations start here: RaBitQ-compressed, sealed, written to Arkiv. Uncited memories expire within about an hour.",
   },
   {
     name: "Episodic",
     meta: "02 · +7 days",
-    desc: "Cite a working memory twice inside its window and the chain extends its lease — remaining time plus a week. The agent voted with its attention; the memory survives.",
+    desc: "Cited at least twice inside the working window → lease extends to remaining time plus seven days.",
   },
   {
     name: "Semantic",
     meta: "03 · 1-year rule",
-    desc: "Cited five times across three sessions, a memory is distilled into a plain-text rule and re-written with a year-long lease. Patterns the agent keeps reaching for become durable knowledge.",
+    desc: "Cited five times across three sessions → distilled to a plain-text rule and re-written with a one-year lease.",
   },
   {
     name: "Cold archive",
     meta: "04 · local mirror",
-    desc: "Expired on-chain but never truly gone: a local SQLite mirror caught every event. On a recall miss the memory is re-created on Arkiv from your own data. You own it even if we vanish.",
+    desc: "After on-chain expiration, your SQLite mirror still holds the event log. Recall can re-create from your copy.",
   },
 ] as const;
 
@@ -109,22 +85,11 @@ function ArrowRight() {
   );
 }
 
-function Hero({
-  economics,
-  memories,
-}: {
-  economics: EconomicsResponse | null;
-  memories: MemoriesResponse | null;
-}) {
+function Hero() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Some browsers won't honour the `autoPlay` attribute until nudged; a muted,
-  // inline play() on mount is the standard fallback and is a no-op when it
-  // already started.
   useEffect(() => {
-    videoRef.current?.play().catch(() => {
-      /* autoplay blocked — the poster frame still shows */
-    });
+    videoRef.current?.play().catch(() => {});
   }, []);
 
   return (
@@ -160,8 +125,8 @@ function Hero({
             <ArrowRight />
           </motion.div>
           <motion.div className="cx-subnav__lead mono" variants={fadeUp}>
-            A decay-aware memory for AI agents — compressed, written to Arkiv,
-            and reinforced only when the agent actually cites it.
+            Decay-aware agent memory on Arkiv — compressed, cited to survive,
+            encrypted with your wallet.
           </motion.div>
           <motion.nav className="cx-subnav__nav mono" variants={fadeUp}>
             <a href="#what">What you get</a>
@@ -179,20 +144,16 @@ function Hero({
           animate="animate"
           transition={{ staggerChildren: 0.12, delayChildren: 0.7 }}
         >
-          <motion.div className="cx-index mono" variants={fadeUp}>
-            01<span className="cx-index__rule" />
-          </motion.div>
           <motion.h1 className="cx-hero__headline" variants={fadeUp}>
-            Memory that earns
+            Darwinian memory
             <br />
-            its rent.
+            for AI agents
             <span className="cx-hero__sub">Owned by your wallet.</span>
           </motion.h1>
           <motion.p className="cx-hero__desc" variants={fadeUp}>
-            Other agent-memory products treat storage lifespan as a budget.
-            Cortex treats it as a fitness function. Cite a memory in a real
-            decision and the chain extends its lease — useful memories grow,
-            useless ones evict for free.
+            Observations are RaBitQ-compressed and sealed before they reach Braga.
+            When an agent cites a memory in a decision, Cortex extends its
+            expiration. What never gets cited decays — no manual cleanup.
           </motion.p>
           <motion.div variants={fadeUp}>
             <a className="cx-btn" href="/console">
@@ -210,34 +171,33 @@ function Hero({
           animate="animate"
           transition={{ delay: 1.1, duration: 0.8, ease: "easeOut" }}
         >
-          <div className="cx-specimen__kicker mono">Live on Braga</div>
-          <div className="cx-specimen__title">
-            Decay-aware memory, measured per block on Arkiv's testnet.
-          </div>
-          <div className="cx-stat">
-            <div className="cx-stat__label mono">Memories alive</div>
-            <div className="cx-stat__value">
-              <span className="cx-alive" />
-              {memories ? memories.counts.total : "—"}
-            </div>
-          </div>
-          <div className="cx-stat">
-            <div className="cx-stat__label mono">Gas / memory</div>
-            <div className="cx-stat__value">
-              {economics ? economics.avgGasPerMemory.toLocaleString() : "—"}
-            </div>
-          </div>
-          <div className="cx-stat">
-            <div className="cx-stat__label mono">Compression</div>
-            <div className="cx-stat__value">
-              {economics ? `${economics.compressionRatio.toFixed(1)}×` : "—"}
-            </div>
-          </div>
+          <div className="cx-specimen__kicker mono">Arkiv Braga</div>
+          <p className="cx-specimen__title">
+            Connect your wallet in the console to write and recall your own
+            memories on testnet.
+          </p>
+          <ul className="cx-specimen__links mono">
+            <li>
+              <a href="/console">Console →</a>
+            </li>
+            <li>
+              <a href={BRAGA.faucet} target="_blank" rel="noreferrer">
+                GLM faucet ↗
+              </a>
+            </li>
+            <li>
+              <a href={BRAGA.explorer} target="_blank" rel="noreferrer">
+                Explorer ↗
+              </a>
+            </li>
+          </ul>
         </motion.aside>
       </div>
 
-      <motion.div
-        className="cx-scroll mono"
+      <motion.a
+        href="#what"
+        className="cx-scroll"
+        aria-label="Scroll to content"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1.4, duration: 0.8 }}
@@ -245,22 +205,21 @@ function Hero({
         <div className="cx-scroll__dot">
           <div className="cx-scroll__bar" />
         </div>
-        Scroll to explore
-      </motion.div>
+      </motion.a>
     </section>
   );
 }
 
 function Statement() {
   const pills = [
-    "Forgets what it doesn't use",
-    "Owned by your wallet",
-    "Plugs into your agent",
+    "recall(query, k)",
+    "act(action, citations[])",
+    "Wallet-derived encryption",
   ];
   return (
     <section className="cx-band" id="what">
       <div className="cx-label mono">
-        <span className="cx-label__n">[ 02 ]</span>
+        <span className="cx-label__n">[ 01 ]</span>
         <b>What you get</b>
       </div>
       <motion.h2
@@ -270,8 +229,8 @@ function Statement() {
         viewport={{ once: true, margin: "-100px" }}
         transition={{ duration: 0.9, ease: EASE }}
       >
-        A memory that decays like a brain, costs cents per session, and{" "}
-        <em>stays yours</em> even if our backend disappears.
+        An agent memory layer where <em>utility</em> sets expiration — not a fixed
+        lifespan you renew by hand.
       </motion.h2>
       <motion.div
         className="cx-pills"
@@ -297,7 +256,6 @@ function Statement() {
 
 function Lifecycle() {
   const [active, setActive] = useState(0);
-  // auto-cycle through the tiers, like the reference's chapter list
   useEffect(() => {
     const i = setInterval(() => setActive((p) => (p + 1) % TIERS.length), 4200);
     return () => clearInterval(i);
@@ -307,8 +265,8 @@ function Lifecycle() {
   return (
     <section className="cx-band cx-dark" id="lifecycle">
       <div className="cx-label mono">
-        <span className="cx-label__n">[ 03 ]</span>
-        <b>The memory lifecycle</b>
+        <span className="cx-label__n">[ 02 ]</span>
+        <b>Memory lifecycle</b>
       </div>
       <div className="cx-life">
         <div className="cx-life__stage">
@@ -318,10 +276,7 @@ function Lifecycle() {
           <div className="cx-life__glyph">
             <div
               className="cx-life__ring"
-              style={{
-                // the ember arc sweeps further as the tier matures
-                ["--sweep" as string]: `${(active + 1) * 90}deg`,
-              }}
+              style={{ ["--sweep" as string]: `${(active + 1) * 90}deg` }}
             >
               <AnimatePresence mode="wait">
                 <motion.div
@@ -338,7 +293,7 @@ function Lifecycle() {
               </AnimatePresence>
             </div>
           </div>
-          <div className="cx-life__counter mono">Reinforced on citation</div>
+          <div className="cx-life__counter mono">Extends on citation</div>
         </div>
 
         <div className="cx-life__list">
@@ -379,8 +334,8 @@ function Install() {
   return (
     <section className="cx-band" id="install">
       <div className="cx-label mono">
-        <span className="cx-label__n">[ 04 ]</span>
-        <b>Install — your AI never forgets your project</b>
+        <span className="cx-label__n">[ 03 ]</span>
+        <b>Install</b>
       </div>
       <div className="cx-grid2">
         <div className="cx-cell">
@@ -395,16 +350,16 @@ function Install() {
 /plugin install cortex-memory`}
           </pre>
           <p>
-            Requires <code>bun</code>. Then just run <code>claude</code> — at
-            session start it recalls your project&apos;s memory; as you work it
-            captures decisions to Arkiv before the context compacts and forgets.
+            Requires <code>bun</code>. At session start it recalls your
+            project&apos;s memory; as you work it captures to Arkiv before
+            context compacts.
           </p>
         </div>
         <div className="cx-cell">
-          <h3>2 · Point it at your wallet (sovereign by design)</h3>
+          <h3>2 · Point it at your wallet</h3>
           <p>
             Memories are sealed with a key derived from your wallet and written
-            to Arkiv — owned by you, not us. Set these in your environment:
+            to Arkiv — owned by you, not us.
           </p>
           <pre className="cx-code">
 {`SESSION_KEY_PRIVATE_KEY=0x…   # signs Arkiv writes (pays GLM gas)
@@ -413,7 +368,7 @@ OPENROUTER_API_KEY=…          # embeddings (or COHERE_API_KEY)`}
           </pre>
           <p>
             Need test GLM?{" "}
-            <a href="https://braga.hoodi.arkiv.network/faucet/" target="_blank" rel="noreferrer">
+            <a href={BRAGA.faucet} target="_blank" rel="noreferrer">
               Braga faucet
             </a>
             . Prefer to watch first?{" "}
@@ -425,32 +380,28 @@ OPENROUTER_API_KEY=…          # embeddings (or COHERE_API_KEY)`}
   );
 }
 
-function Economics({ economics, memories }: { economics: EconomicsResponse | null; memories: MemoriesResponse | null }) {
+function Economics({ economics }: { economics: EconomicsResponse | null }) {
   return (
-    <section className="cx-band">
+    <section className="cx-band" id="economics">
       <div className="cx-label mono">
-        <span className="cx-label__n">[ 05 ]</span>
-        <b>The trilemma — measured on Braga</b>
+        <span className="cx-label__n">[ 04 ]</span>
+        <b>On Braga testnet</b>
       </div>
       <div className="cx-tri">
         <div className="cx-tri__cell">
           <div className="cx-tri__label mono">Cost per memory</div>
-          <div className="cx-tri__value">
-            {economics ? economics.avgGasPerMemory.toLocaleString() : "—"}
-          </div>
+          <div className="cx-tri__value">Ultra-low</div>
           <div className="cx-tri__sub">
-            {economics
-              ? `${formatGlm(economics.totalGasCostWei)} total · ${economics.entityCount} entities`
-              : "loading…"}
+            GLM gas on Braga testnet · priced as bytes × expiration, not flat
+            storage rent
           </div>
         </div>
         <div className="cx-tri__cell">
-          <div className="cx-tri__label mono">Memories alive</div>
-          <div className="cx-tri__value">{memories ? memories.counts.total : "—"}</div>
+          <div className="cx-tri__label mono">Your memory</div>
+          <div className="cx-tri__value">Personal</div>
           <div className="cx-tri__sub">
-            {memories
-              ? `${memories.counts.working} working · ${memories.counts.episodic} episodic · ${memories.counts.rule} rule`
-              : "loading…"}
+            Wallet-owned on Arkiv — connect in the console to see your graph,
+            tiers, and recall
           </div>
         </div>
         <div className="cx-tri__cell">
@@ -461,29 +412,33 @@ function Economics({ economics, memories }: { economics: EconomicsResponse | nul
           <div className="cx-tri__sub">
             {economics
               ? `${economics.rawBytesEstimate.toLocaleString()} B raw → ${economics.storedBytesEstimate.toLocaleString()} B on-chain`
-              : "loading…"}
+              : "RaBitQ · 1536-d embeddings"}
           </div>
         </div>
       </div>
+    </section>
+  );
+}
 
-      <div className="cx-prose" style={{ marginTop: "clamp(48px, 8vh, 96px)" }}>
+function HowItFits() {
+  return (
+    <section className="cx-band">
+      <div className="cx-label mono">
+        <span className="cx-label__n">[ 05 ]</span>
+        <b>How it fits Arkiv</b>
+      </div>
+      <div className="cx-prose">
         <p>
-          Arkiv prices storage as <strong>bytes × lifetime</strong>: cheap for
-          tiny things briefly, expensive for large things forever. Agent
-          embeddings are large by default (1,536 dimensions × 4 bytes = 6 KB
-          each) and want to live as long as they&apos;re useful.
+          Arkiv stores <strong>bytes × lifetime</strong>. Agent embeddings are
+          naturally large (~6 KB each at full float width). Cortex stores a
+          RaBitQ-compressed fingerprint (~200 B) plus attributes, and only pays
+          to <strong>extend</strong> entities the agent cites — accumulative
+          extend, not a naive “add 24 hours”.
         </p>
         <p>
-          Cortex closes the gap from both ends. <strong>RaBitQ</strong>{" "}
-          compresses each embedding to ~200 bytes. <strong>Accumulative
-          extend</strong> only spends gas to keep memories the agent actually
-          cites. Together they make the unit economics of on-chain agent memory
-          genuinely viable.
-        </p>
-        <p className="cx-muted">
-          This is the demonstration vehicle for Arkiv&apos;s broader thesis:
-          time-scoped storage + queryable attributes + compression = agent
-          infrastructure that doesn&apos;t bankrupt anyone.
+          Payloads are encrypted client-side; Braga holds ciphertext. Your local
+          SQLite mirror catches every event so you can rebuild if a host goes
+          away — see <code>bun scripts/sovereignty-proof.ts</code>.
         </p>
       </div>
     </section>
@@ -495,31 +450,27 @@ function Honest() {
     <section className="cx-band" style={{ paddingTop: 0 }}>
       <div className="cx-label mono">
         <span className="cx-label__n">[ 06 ]</span>
-        <b>Honest trust assumptions</b>
+        <b>Trust assumptions</b>
       </div>
       <div className="cx-prose">
         <ul>
           <li>
-            <strong>v1 relayer is trusted.</strong> A backend EOA holds the
-            session key, bounded by an EIP-712 SessionAuthorization (max writes,
-            validBefore, entityNamespace). v2 migrates to EIP-7702 when Braga
-            supports it.
+            <strong>Session-key relayer.</strong> The autonomous loop signs with
+            a backend session key, bounded by EIP-712 SessionAuthorization. Your
+            wallet remains <code>$owner</code>.
           </li>
           <li>
-            <strong>The memory market is deferred, not shipped.</strong> A
-            trustless agent-to-agent market needs on-chain escrow + atomic
-            pay-to-decrypt, which Braga (precompile-only, no contract
-            deployment) can&apos;t host yet. It&apos;s a documented future layer.
+            <strong>Browser uploads are yours.</strong> File store and key
+            adoption use your wallet on Braga; we never hold your derivation
+            secret.
           </li>
           <li>
-            <strong>Semantic-tier lifespan capped at 1 year.</strong> Not 5/250
-            years. Arkiv&apos;s fee model is unresolved — we ship short and
-            migrate when it lands.
+            <strong>Semantic tier capped at one year.</strong> Until Arkiv&apos;s
+            fee model is final, we do not promise multi-year leases.
           </li>
           <li>
-            <strong>No &quot;trustless&quot; / &quot;fully decentralised&quot;
-            claims.</strong> Arkiv launches with centralised sequencers. We
-            market what&apos;s true, not what&apos;s aspirational.
+            <strong>No “fully decentralised” marketing.</strong> Braga is a
+            testnet with operated infrastructure. We describe what ships today.
           </li>
         </ul>
       </div>
@@ -529,38 +480,32 @@ function Honest() {
 
 export function Landing() {
   const [economics, setEconomics] = useState<EconomicsResponse | null>(null);
-  const [memories, setMemories] = useState<MemoriesResponse | null>(null);
 
   useEffect(() => {
     let alive = true;
-    const tick = async () => {
+    const load = async () => {
       try {
-        const [e, m] = await Promise.all([
-          fetch("/api/economics").then((r) => r.json()),
-          fetch("/api/memories").then((r) => r.json()),
-        ]);
-        if (!alive) return;
-        setEconomics(e as EconomicsResponse);
-        setMemories(m as MemoriesResponse);
+        const r = await fetch("/api/economics");
+        if (!r.ok || !alive) return;
+        setEconomics((await r.json()) as EconomicsResponse);
       } catch {
-        /* ignore — landing degrades gracefully */
+        /* static fallbacks in Economics */
       }
     };
-    tick();
-    const i = setInterval(tick, 10_000);
+    load();
     return () => {
       alive = false;
-      clearInterval(i);
     };
   }, []);
 
   return (
     <div className="cx">
-      <Hero economics={economics} memories={memories} />
+      <Hero />
       <Statement />
       <Lifecycle />
       <Install />
-      <Economics economics={economics} memories={memories} />
+      <Economics economics={economics} />
+      <HowItFits />
       <Honest />
       <CortexFooter />
     </div>

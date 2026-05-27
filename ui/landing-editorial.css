@@ -268,9 +268,9 @@ body:has(.cx) {
   box-shadow: none;
 }
 
-/* right specimen panel — live chain numbers */
+/* right panel — Braga links (no server-scoped live stats) */
 .cx-specimen {
-  width: 220px;
+  width: min(260px, 36vw);
   flex-shrink: 0;
   text-align: right;
 }
@@ -281,10 +281,26 @@ body:has(.cx) {
 }
 .cx-specimen__title {
   font-size: 13px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.82);
   line-height: 1.6;
-  margin-bottom: 22px;
+  margin: 0 0 18px;
+}
+.cx-specimen__links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 10px;
+  line-height: 2;
+}
+.cx-specimen__links a {
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 150ms ease;
+}
+.cx-specimen__links a:hover {
+  color: #fff;
 }
 .cx-stat {
   margin-bottom: 16px;
@@ -323,7 +339,7 @@ body:has(.cx) {
   }
 }
 
-/* scroll-to-explore */
+/* scroll cue — icon only */
 .cx-scroll {
   position: absolute;
   bottom: 30px;
@@ -331,9 +347,7 @@ body:has(.cx) {
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 14px;
   color: rgba(255, 255, 255, 0.6);
-  font-size: 10px;
 }
 .cx-scroll__dot {
   width: 46px;
