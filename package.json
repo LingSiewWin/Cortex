@@ -5,14 +5,23 @@
   "private": true,
   "description": "Cortex — a Darwinian memory engine for AI agents on Arkiv. Memories reinforce on cited utility; useless ones decay for free.",
   "scripts": {
-    "dev": "bun --hot src/ui-server.ts",
+    "dev": "next dev",
+    "build": "mkdir -p public/assets && cp -f assets/landing-video.mp4 assets/landing-footer.png public/assets/ 2>/dev/null || true && next build",
+    "start": "next start",
+    "dev:bun": "bun --hot src/ui-server.ts",
     "test": "bun test",
     "test:offline": "bun test tests/eip712.test.ts tests/session-key.test.ts tests/siwe.test.ts tests/rabitq.test.ts tests/darwinian-extend.test.ts tests/darwinian-citation.test.ts tests/dashboard.test.ts tests/market-publish.test.ts",
     "canary": "bun test tests/canary-atblock.test.ts",
     "smoke": "bun test tests/smoke-create-read.test.ts",
     "mirror": "bun --hot src/mirror/daemon.ts",
+    "mcp": "bun src/mcp/server.ts",
+    "obsidian-sync": "bun scripts/obsidian-sync.ts",
+    "obsidian-recover": "bun scripts/obsidian-recover.ts",
+    "cortex-drain": "bun scripts/cortex-drain.ts",
+    "cortex-auth": "bun scripts/cortex-auth.ts",
+    "build:plugin": "bun scripts/build-plugin.ts",
     "backfill": "bun scripts/backfill.ts",
-    "dashboard": "bun --hot src/ui-server.ts",
+    "dashboard": "next dev",
     "demo-flow": "bun scripts/demo-flow.ts",
     "faucet-check": "bun scripts/faucet-check.ts",
     "mmr-bench": "bun scripts/mmr-bench.ts",
@@ -27,6 +36,7 @@
     "derive-user-signature": "bun scripts/derive-user-signature.ts"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "latest",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3"
@@ -36,13 +46,24 @@
   },
   "dependencies": {
     "@arkiv-network/sdk": "^0.6.8",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@rainbow-me/rainbowkit": "^2.2.11",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@react-three/postprocessing": "^3.0.4",
+    "@reown/appkit": "^1.8.18",
+    "@reown/appkit-adapter-wagmi": "^1.8.18",
+    "@tanstack/react-query": "^5",
+    "better-sqlite3": "^12.10.0",
+    "cbor-x": "^1.6.4",
     "framer-motion": "12.40.0",
+    "gray-matter": "^4.0.3",
+    "next": "^15.5.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "three": "^0.184.0",
-    "viem": "^2.49.3"
+    "viem": "^2.49.3",
+    "wagmi": "^2.19.5",
+    "zod": "^4.4.3"
   }
 }
