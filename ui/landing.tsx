@@ -11,6 +11,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CortexFooter from "./components/CortexFooter";
+import { ConsoleLink } from "./components/ConsoleLink";
+import { PixelWaveProvider } from "./components/PixelWaveProvider";
 import { BRAGA } from "@/src/constants";
 
 const VIDEO_SRC = "/assets/landing-video.mp4";
@@ -132,7 +134,7 @@ function Hero() {
             <a href="#what">What you get</a>
             <a href="#lifecycle">Lifecycle</a>
             <a href="#install">Install</a>
-            <a href="/console">Open Console</a>
+            <ConsoleLink>Open Console</ConsoleLink>
           </motion.nav>
         </motion.div>
       </header>
@@ -156,11 +158,11 @@ function Hero() {
             expiration. What never gets cited decays — no manual cleanup.
           </motion.p>
           <motion.div variants={fadeUp}>
-            <a className="cx-btn" href="/console">
+            <ConsoleLink className="cx-btn">
               <span className="cx-btn__fill" />
               <span>Open Console</span>
               <ArrowRight />
-            </a>
+            </ConsoleLink>
           </motion.div>
         </motion.div>
 
@@ -178,7 +180,7 @@ function Hero() {
           </p>
           <ul className="cx-specimen__links mono">
             <li>
-              <a href="/console">Console →</a>
+              <ConsoleLink>Console →</ConsoleLink>
             </li>
             <li>
               <a href={BRAGA.faucet} target="_blank" rel="noreferrer">
@@ -372,7 +374,7 @@ OPENROUTER_API_KEY=…          # embeddings (or COHERE_API_KEY)`}
               Braga faucet
             </a>
             . Prefer to watch first?{" "}
-            <a href="/console">Open the live console →</a>
+            <ConsoleLink>Open the live console →</ConsoleLink>
           </p>
         </div>
       </div>
@@ -499,15 +501,17 @@ export function Landing() {
   }, []);
 
   return (
-    <div className="cx">
-      <Hero />
-      <Statement />
-      <Lifecycle />
-      <Install />
-      <Economics economics={economics} />
-      <HowItFits />
-      <Honest />
-      <CortexFooter />
-    </div>
+    <PixelWaveProvider>
+      <div className="cx">
+        <Hero />
+        <Statement />
+        <Lifecycle />
+        <Install />
+        <Economics economics={economics} />
+        <HowItFits />
+        <Honest />
+        <CortexFooter />
+      </div>
+    </PixelWaveProvider>
   );
 }
