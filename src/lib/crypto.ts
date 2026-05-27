@@ -22,28 +22,13 @@
 
 import { SESSION } from "../constants";
 
+// The canonical message lives in its own dependency-free module so the browser
+// connect app can import it without pulling in constants.ts (process.env). Both
+// sides MUST use the same builder or the derived key silently mismatches.
+export { keyDerivationMessage } from "./derivation-message";
+
 const DERIVATION_INFO_PAYLOAD = "cortex.payload.aes256gcm";
 const DERIVATION_INFO_INDEX = "cortex.index.kdf";
-
-/**
- * The message the user signs to bootstrap their session. EIP-191 personal_sign
- * is fine here — we don't need EIP-712 because the signature itself is the seed,
- * not an authorization (that's a separate SessionAuthorization typed struct in
- * Phase 4).
- *
- * Including the user's address makes the signature unique per-wallet even if
- * the same private key signs across multiple sessions.
- */
-export function keyDerivationMessage(userAddress: string): string {
-  return [
-    SESSION.keyDerivationDomain,
-    "",
-    "I authorise this device to derive encryption keys for my Cortex memory.",
-    "This signature does not transfer funds and is safe to sign.",
-    "",
-    `Address: ${userAddress.toLowerCase()}`,
-  ].join("\n");
-}
 
 /**
  * Derive a 32-byte AES-256-GCM key from the user's signature.

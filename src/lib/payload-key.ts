@@ -23,6 +23,7 @@
 import type { Hex } from "@arkiv-network/sdk";
 import { privateKeyToAccount } from "@arkiv-network/sdk/accounts";
 import { derivePayloadKey, keyDerivationMessage } from "./crypto.ts";
+import { readConfig } from "./cortex-config.ts";
 
 // `undefined` = not yet resolved; `null` = resolved, no wallet material.
 let _cached: CryptoKey | null | undefined;
@@ -40,14 +41,28 @@ async function resolveSignature(): Promise<Hex | null> {
     const message = keyDerivationMessage(account.address);
     return (await account.signMessage({ message })) as Hex;
   }
+
+  // Fallback: the signature `cortex auth` captured into ~/.cortex/config.json.
+  const cfgSig = readConfig()?.userSignature;
+  if (cfgSig && SIG_RE.test(cfgSig)) return cfgSig as Hex;
+
   return null;
 }
 
 /**
  * Memoized wallet-derived AES key, or `null` when no wallet material is present.
  * Callers that read memories should skip sealed entities when this is null.
+ *
+ * The dashboard's owner-identity singleton wins when populated (set by
+ * /api/auth/adopt when the browser connects). Legacy env / config fallbacks
+ * stay intact for headless and plugin scenarios. Lazy import avoids a
+ * circular dep at module-load time (owner-identity imports from crypto.ts).
  */
 export async function getPayloadKey(): Promise<CryptoKey | null> {
+  const { getEffective } = await import("../agent/owner-identity");
+  const singletonKey = (await getEffective()).payloadKey;
+  if (singletonKey) return singletonKey;
+
   if (_cached !== undefined) return _cached;
   const sig = await resolveSignature();
   _cached = sig ? await derivePayloadKey(sig) : null;
