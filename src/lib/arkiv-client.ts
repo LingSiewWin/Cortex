@@ -112,6 +112,29 @@ export function getSessionKeyAddress(): Hex {
  * controls extend/update/delete) — the counterpart to the session-key
  * `$creator` returned by `getSessionKeyAddress()`.
  */
+const EOA_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+function parseEoaAddress(v: string | undefined): Hex | null {
+  if (!v || !EOA_ADDRESS_RE.test(v)) return null;
+  return v as Hex;
+}
+
+/** Resolve $owner from env, cortex auth config, or CORTEX_USER_PRIVATE_KEY. */
+function resolveUserPrimaryEOA(): Hex | null {
+  const fromEnv = parseEoaAddress(process.env.USER_PRIMARY_ADDRESS);
+  if (fromEnv) return fromEnv;
+
+  const fromConfig = parseEoaAddress(readConfig()?.ownerAddress);
+  if (fromConfig) return fromConfig;
+
+  const pk = process.env.CORTEX_USER_PRIVATE_KEY;
+  if (pk && /^0x[0-9a-fA-F]{64}$/.test(pk)) {
+    return privateKeyToAccount(pk as Hex).address;
+  }
+
+  return null;
+}
+
 export function getUserPrimaryEOA(): Hex {
   // Dashboard browser-adoption wins. Synchronous peek at an already-resolved
   // singleton (env resolution is async; we keep this function sync since callers
@@ -122,25 +145,25 @@ export function getUserPrimaryEOA(): Hex {
     const mod = require("../agent/owner-identity") as typeof import("../agent/owner-identity");
     const cached = mod._peekCached?.();
     if (cached && cached.source === "browser" && cached.ownerAddress) {
-      return cached.ownerAddress;
+      const browser = parseEoaAddress(cached.ownerAddress);
+      if (browser) return browser;
     }
   } catch {
     /* singleton module not loaded yet — fall through to env */
   }
 
-  // env wins; else the wallet address `cortex auth` recorded into ~/.cortex/config.json
-  const v = process.env.USER_PRIMARY_ADDRESS ?? readConfig()?.ownerAddress;
-  if (!v) {
-    throw new Error(
-      "No owner wallet. Run `cortex auth` (connect your wallet) — or set USER_PRIMARY_ADDRESS.",
-    );
-  }
-  if (!/^0x[0-9a-fA-F]{40}$/.test(v)) {
-    throw new Error(
-      "USER_PRIMARY_ADDRESS must be a 0x-prefixed 40-hex-char EOA.",
-    );
-  }
-  return v as Hex;
+  const resolved = resolveUserPrimaryEOA();
+  if (resolved) return resolved;
+
+  const envHint = process.env.USER_PRIMARY_ADDRESS?.includes("_here_")
+    ? "USER_PRIMARY_ADDRESS in .env is still the .env.example placeholder — replace it with your MetaMask address (0x + 40 hex chars), or set CORTEX_USER_PRIVATE_KEY, or run `bun run cortex-auth`.\n"
+  : "";
+
+  throw new Error(
+    envHint +
+      "No owner wallet. Set USER_PRIMARY_ADDRESS=0x… (your primary EOA), " +
+      "or CORTEX_USER_PRIVATE_KEY, or run `bun run cortex-auth`.",
+  );
 }
 
 // ---------------------------------------------------------------------------
