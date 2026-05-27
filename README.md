@@ -98,38 +98,38 @@ High-level flows on Arkiv Braga — straight-line `sequenceDiagram`s (renders on
 ```mermaid
 sequenceDiagram
   autonumber
-  participant UI as Browser /console
-  participant Wallet as Your wallet · $owner
-  participant API as Cortex /api
-  participant OR as OpenRouter / Cohere
-  participant Engine as RaBitQ · recall · seal
+  participant UI as Browser console
+  participant Wallet as Owner wallet
+  participant API as Cortex API
+  participant OR as Embeddings API
+  participant Engine as RaBitQ recall seal
   participant Mirror as SQLite mirror
-  participant Agent as Session key · $creator
+  participant Agent as Session key creator
   participant Chain as Arkiv Braga
-  participant SSE as GET /sse
+  participant SSE as SSE stream
 
-  Note over UI,Chain: Write — wallet signs; 1h starting lease
-  UI->>API: POST /api/store-file/prepare
-  API->>OR: embedText(descriptor)
+  Note over UI,Chain: Write path wallet signs 1h lease
+  UI->>API: store-file prepare
+  API->>OR: embedText descriptor
   OR-->>API: 1536-d embedding
-  API-->>UI: RaBitQ + entity attributes
+  API-->>UI: RaBitQ and attributes
   UI->>Wallet: sign key derivation
-  UI->>UI: AES-GCM seal(payload)
+  UI->>UI: AES-GCM seal payload
   Wallet->>Chain: mutateEntities
   Chain-->>Mirror: ingest events
-  Mirror-->>SSE: graph · RPC ticker
+  Mirror-->>SSE: graph and RPC ticker
 
-  Note over Agent,Chain: Reinforce — cite in act() or memory decays
-  Agent->>Engine: recall(query, k)
+  Note over Agent,Chain: Reinforce cite in act or decay
+  Agent->>Engine: recall query k
   Engine->>Mirror: hybrid rank
   Engine->>Chain: query attributes
   Engine-->>Agent: memory IDs
-  Agent->>Engine: act(action, citations[])
-  Engine->>Chain: extendEntity · remaining + 24h
+  Agent->>Engine: act with citations
+  Engine->>Chain: extendEntity remaining plus 24h
   Engine->>Chain: anchor MMR root
-  Engine-->>SSE: memory.cited · arkiv.rpc
+  Engine-->>SSE: memory.cited and arkiv.rpc
 
-  Note over Chain: Uncited → expiration → L1Block eviction (free)
+  Note over Chain: Uncited memories evict via L1Block
 ```
 
 ### Store a memory (browser wallet)
@@ -137,59 +137,59 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   autonumber
-  participant UI as Browser /console
-  participant API as POST /api/store-file/prepare
-  participant OR as OpenRouter / Cohere
-  participant Wallet as MetaMask · Braga
+  participant UI as Browser console
+  participant API as store-file prepare
+  participant OR as OpenRouter or Cohere
+  participant Wallet as MetaMask on Braga
   participant Chain as Arkiv Braga
 
-  UI->>API: file + optional caption
-  API->>API: descriptor · filename · mime · sha256
-  API->>OR: embedText(descriptor)
-  alt missing OPENROUTER_API_KEY / COHERE_API_KEY
-    OR-->>API: 401 / embed error
-    Note over Chain: Never reached — no GLM spent yet
+  UI->>API: file and optional caption
+  API->>API: descriptor filename mime sha256
+  API->>OR: embedText descriptor
+  alt missing embedding API key
+    OR-->>API: 401 embed error
+    Note over Chain: Never reached no GLM spent
   else key present
     OR-->>API: 1536-d vector
-    API-->>UI: prepared payload + RaBitQ metadata
-    UI->>Wallet: sign CORTEX_KEY_DERIVATION
-    UI->>UI: seal ciphertext · wallet-derived key
-    Wallet->>Chain: mutateEntities · project=cortex-ethns-2026
-    Chain-->>UI: txHash · entityKey · 1h lease
+    API-->>UI: prepared payload and RaBitQ metadata
+    UI->>Wallet: sign key derivation
+    UI->>UI: seal ciphertext wallet key
+    Wallet->>Chain: mutateEntities on Braga
+    Chain-->>UI: txHash entityKey 1h lease
   end
 ```
 
-### Recall → cite → extend (Darwinian loop)
+### Recall cite extend (Darwinian loop)
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant UI as Browser /console
-  participant API as POST /api/citation/manual
-  participant Loop as Session key loop · ~15s
-  participant Engine as recall() · act()
+  participant UI as Browser console
+  participant API as citation manual API
+  participant Loop as Session key loop
+  participant Engine as recall and act
   participant Mirror as SQLite mirror
   participant Chain as Arkiv Braga
-  participant SSE as GET /sse
+  participant SSE as SSE stream
 
   alt manual cite from console
-    UI->>API: { query }
-    API->>Engine: runCiteCycle(query)
+    UI->>API: query string
+    API->>Engine: runCiteCycle
   else autonomous loop
-    Loop->>Engine: runCiteCycle(query)
+    Loop->>Engine: runCiteCycle
   end
 
-  Engine->>Mirror: RaBitQ distance + attributes
-  Engine->>Chain: query live entities · $creator filter
+  Engine->>Mirror: RaBitQ distance and attributes
+  Engine->>Chain: query live entities
   Engine-->>SSE: recall.completed
 
   alt no hits
-    Note over Chain: skip act — nothing to extend
+    Note over Chain: skip act nothing to extend
   else citations present
-    Engine->>Chain: extendEntity · newBtl = remaining + 24h
+    Engine->>Chain: extendEntity remaining plus 24h
     Engine->>Chain: anchor decision MMR root
-    Engine-->>Mirror: outbox · tier counters
-    Engine-->>SSE: memory.cited · arkiv.rpc
+    Engine-->>Mirror: outbox and tier counters
+    Engine-->>SSE: memory.cited and arkiv.rpc
   end
 ```
 
