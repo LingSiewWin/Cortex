@@ -79,92 +79,101 @@ Never commit `.env`. See `.env.example` for the full list.
 
 ---
 
-## Architecture
+## User flows
 
-High-level data flow from browser → app → mirror → Arkiv Braga.
+Mermaid diagrams for how people and the agent move through Cortex. Render on GitHub or paste into [mermaid.live](https://mermaid.live).
+
+### 1 · Visitor → console
 
 ```mermaid
-flowchart TB
-  subgraph Client["Browser"]
-    UI["Landing / Console UI"]
-    WK["Wallet · AppKit + wagmi"]
-    UI --- WK
-  end
-
-  subgraph Vercel["Next.js on Vercel"]
-    APP["App Router<br/>/ · /console"]
-    API["/api/* dispatch"]
-    SSE["/sse event stream"]
-    PREP["store-file/prepare<br/>embed + seal prep"]
-    APP --> API
-    APP --> SSE
-    API --> PREP
-  end
-
-  subgraph Agent["Server agent (optional workers)"]
-    LOOP["Autonomous loop<br/>recall → act → cite"]
-    ANCHOR["Anchor worker · MMR root"]
-    EVICT["Evict watcher"]
-    SK["Session key EOA<br/>$creator"]
-    LOOP --> SK
-    ANCHOR --> SK
-  end
-
-  subgraph Mirror["SQLite mirror (local / ephemeral on Vercel)"]
-    DB[("cortex-mirror.sqlite")]
-    MMR["MMR + citation counts"]
-    OUT["Act outbox"]
-    DB --- MMR
-    DB --- OUT
-  end
-
-  subgraph Chain["Arkiv Braga testnet"]
-    PRE["Precompile 0x…61726b6976"]
-    ENT["Entities · RaBitQ + attrs<br/>client-encrypted payload"]
-    L1["L1Block sync · decay"]
-    PRE --> ENT
-    ENT --> L1
-  end
-
-  subgraph External["External services"]
-    EMB["Embedding API<br/>OpenRouter / Cohere"]
-    LLM["Anthropic · distillation"]
-  end
-
-  WK -->|"adopt · sign derivation"| API
-  WK -->|"mutateEntities upload"| PRE
-  UI --> APP
-  UI -->|"SSE subscribe"| SSE
-
-  API --> PREP
-  PREP --> EMB
-  PREP -->|"sealed create params"| WK
-
-  LOOP -->|"recall / extend"| PRE
-  LOOP --> DB
-  ANCHOR --> PRE
-  ANCHOR --> DB
-  EVICT --> DB
-  EVICT -->|"memory.evicted"| SSE
-
-  PRE --> ENT
-  API --> DB
-  SSE --> DB
-
-  LLM -.->|"semantic tier"| LOOP
-
-  classDef chain fill:#1a1008,stroke:#ff5a00,color:#fff
-  classDef client fill:#f5f5f0,stroke:#333,color:#111
-  class Chain chain
-  class Client client
+flowchart TD
+  START([Open Vercel deploy]) --> LAND[Landing page]
+  LAND --> OPEN[Go to /console]
+  OPEN --> GATE{Wallet connected?}
+  GATE -->|No| CONNECT[Connect wallet<br/>AppKit or MetaMask]
+  CONNECT --> GATE
+  GATE -->|Yes| WATCH[Live dashboard]
+  WATCH --> SSE[Subscribe /sse]
+  SSE --> GRAPH[Topology graph + event feed]
+  GRAPH --> CHOICE{What next?}
+  CHOICE -->|Upload file| UP[[Store memory flow]]
+  CHOICE -->|Type query| MANUAL[Manual cite / recall]
+  CHOICE -->|Wait| AUTO[[Agent loop ticks]]
+  MANUAL --> WATCH
+  AUTO --> WATCH
+  UP --> WATCH
 ```
 
-| Path | Role |
-|------|------|
-| **Human upload** | Wallet signs on Braga after server prepares embed + sealed payload |
-| **Agent loop** | Session key writes/cites via mirror-first path; extends on citation |
-| **Mirror** | Owns hot reads, MMR, outbox; rebuildable from public Arkiv RPC |
-| **Decay** | Uncited entities expire; L1Block removes stale state for free |
+### 2 · Store a memory (your wallet signs on Braga)
+
+```mermaid
+flowchart TD
+  A([Pick file + optional caption]) --> B[Switch wallet to Braga]
+  B --> C[Sign CORTEX_KEY_DERIVATION message]
+  C --> D[POST /api/store-file/prepare]
+  D --> E[Server embeds text · builds RaBitQ + metadata]
+  E --> F[Browser seals payload with derived key]
+  F --> G[Preflight · GLM balance + gas estimate]
+  G --> H{Enough GLM?}
+  H -->|No| FAU[Braga faucet · fund wallet]
+  FAU --> G
+  H -->|Yes| I[Confirm tx in wallet<br/>mutateEntities]
+  I --> J([Memory on Arkiv · 1 h starting expiration])
+  J --> K[Mirror ingests event · graph updates]
+```
+
+### 3 · Darwinian agent loop (autonomous or manual cite)
+
+```mermaid
+flowchart TD
+  TICK([Loop tick ~15s or manual query]) --> Q[Choose natural-language query]
+  Q --> R[recall query, k]
+  R --> HIT{Any memories?}
+  HIT -->|No| TICK
+  HIT -->|Yes| ACT[act decision + citations]
+  ACT --> EXT[extend each cited memory<br/>remaining + 24 h]
+  EXT --> TIER{Promotion thresholds?}
+  TIER -->|≥2 cites in window| EP[→ Episodic · +7 d]
+  TIER -->|≥5 cites · 3 sessions| SEM[→ Semantic rule · 1 y]
+  TIER -->|Else| MMR
+  EP --> MMR[Append MMR leaf · commit anchor]
+  SEM --> MMR
+  MMR --> OUT[SSE · memory.cited · arkiv.rpc · anchor]
+  OUT --> TICK
+```
+
+### 4 · Memory lifespan (cite or decay)
+
+```mermaid
+flowchart LR
+  NEW([Write / upload]) --> W[Working · 1 h]
+  W -->|cited| R[Reinforce · accumulative extend]
+  R --> W
+  W -->|≥2 cites| E[Episodic · up to 7 d]
+  E -->|≥5 cites · 3 sessions| S[Semantic · 1 y distilled rule]
+  W -->|never cited| X[Expiration]
+  E -->|unused| X
+  X --> EV([L1Block evicts · free])
+```
+
+### 5 · Wallet roles (who signs what)
+
+```mermaid
+flowchart LR
+  subgraph You["Your wallet · $owner"]
+    U1[SIWE login · optional]
+    U2[Key derivation signature]
+    U3[Upload tx on Braga]
+    U4[Decrypt mirror / recall]
+  end
+  subgraph Server["Session key · $creator"]
+    S1[Autonomous recall + act]
+    S2[Seed / loop writes]
+    S3[Anchor + extend batches]
+  end
+  U2 --> U3
+  S1 --> S3
+```
 
 **Ownership:** `$creator` = session key (attribution); `$owner` = your wallet (extend/update/delete). Reads filter by creator + `project=cortex-ethns-2026`.
 
