@@ -79,100 +79,69 @@ Never commit `.env`. See `.env.example` for the full list.
 
 ---
 
-## User flows
+## Architecture
 
-Mermaid diagrams for how people and the agent move through Cortex. Render on GitHub or paste into [mermaid.live](https://mermaid.live).
-
-### 1 · Visitor → console
+How Cortex fits together — wallet roles, write/recall/reinforce, and decay on Arkiv. Renders on GitHub or [mermaid.live](https://mermaid.live).
 
 ```mermaid
-flowchart TD
-  START([Open Vercel deploy]) --> LAND[Landing page]
-  LAND --> OPEN[Go to /console]
-  OPEN --> GATE{Wallet connected?}
-  GATE -->|No| CONNECT[Connect wallet<br/>AppKit or MetaMask]
-  CONNECT --> GATE
-  GATE -->|Yes| WATCH[Live dashboard]
-  WATCH --> SSE[Subscribe /sse]
-  SSE --> GRAPH[Topology graph + event feed]
-  GRAPH --> CHOICE{What next?}
-  CHOICE -->|Upload file| UP[[Store memory flow]]
-  CHOICE -->|Type query| MANUAL[Manual cite / recall]
-  CHOICE -->|Wait| AUTO[[Agent loop ticks]]
-  MANUAL --> WATCH
-  AUTO --> WATCH
-  UP --> WATCH
-```
-
-### 2 · Store a memory (your wallet signs on Braga)
-
-```mermaid
-flowchart TD
-  A([Pick file + optional caption]) --> B[Switch wallet to Braga]
-  B --> C[Sign CORTEX_KEY_DERIVATION message]
-  C --> D[POST /api/store-file/prepare]
-  D --> E[Server embeds text · builds RaBitQ + metadata]
-  E --> F[Browser seals payload with derived key]
-  F --> G[Preflight · GLM balance + gas estimate]
-  G --> H{Enough GLM?}
-  H -->|No| FAU[Braga faucet · fund wallet]
-  FAU --> G
-  H -->|Yes| I[Confirm tx in wallet<br/>mutateEntities]
-  I --> J([Memory on Arkiv · 1 h starting expiration])
-  J --> K[Mirror ingests event · graph updates]
-```
-
-### 3 · Darwinian agent loop (autonomous or manual cite)
-
-```mermaid
-flowchart TD
-  TICK([Loop tick ~15s or manual query]) --> Q[Choose natural-language query]
-  Q --> R[recall query, k]
-  R --> HIT{Any memories?}
-  HIT -->|No| TICK
-  HIT -->|Yes| ACT[act decision + citations]
-  ACT --> EXT[extend each cited memory<br/>remaining + 24 h]
-  EXT --> TIER{Promotion thresholds?}
-  TIER -->|≥2 cites in window| EP[→ Episodic · +7 d]
-  TIER -->|≥5 cites · 3 sessions| SEM[→ Semantic rule · 1 y]
-  TIER -->|Else| MMR
-  EP --> MMR[Append MMR leaf · commit anchor]
-  SEM --> MMR
-  MMR --> OUT[SSE · memory.cited · arkiv.rpc · anchor]
-  OUT --> TICK
-```
-
-### 4 · Memory lifespan (cite or decay)
-
-```mermaid
-flowchart LR
-  NEW([Write / upload]) --> W[Working · 1 h]
-  W -->|cited| R[Reinforce · accumulative extend]
-  R --> W
-  W -->|≥2 cites| E[Episodic · up to 7 d]
-  E -->|≥5 cites · 3 sessions| S[Semantic · 1 y distilled rule]
-  W -->|never cited| X[Expiration]
-  E -->|unused| X
-  X --> EV([L1Block evicts · free])
-```
-
-### 5 · Wallet roles (who signs what)
-
-```mermaid
-flowchart LR
-  subgraph You["Your wallet · $owner"]
-    U1[SIWE login · optional]
-    U2[Key derivation signature]
-    U3[Upload tx on Braga]
-    U4[Decrypt mirror / recall]
+flowchart TB
+  subgraph Owner["Your wallet · $owner"]
+    KD[SIWE · key derivation signature]
+    UP[Upload · sign Braga tx]
+    DEC[Decrypt on recall]
   end
-  subgraph Server["Session key · $creator"]
-    S1[Autonomous recall + act]
-    S2[Seed / loop writes]
-    S3[Anchor + extend batches]
+
+  subgraph Console["Console /console"]
+    UI[Topology graph · upload · manual cite]
+    SSE[SSE live events]
   end
-  U2 --> U3
-  S1 --> S3
+
+  subgraph Agent["Darwinian loop · $creator session key"]
+    REC["recall(query, k)"]
+    ACT["act(action, citations[])"]
+    EXT["extend · remaining + 24h"]
+  end
+
+  subgraph Engine["Cortex engine"]
+    RQ[Hybrid recall · RaBitQ + Arkiv attributes]
+    SEAL[Wallet-derived AES-GCM seal]
+    MIRROR[(SQLite mirror)]
+    PROOF[MMR decision anchors]
+  end
+
+  subgraph Arkiv["Arkiv Braga"]
+    MEM[Encrypted entities · 1h start]
+    LIFE[Working → Episodic → Semantic]
+    EVICT[Uncited · L1Block eviction]
+  end
+
+  UI --> UP
+  UI --> REC
+  UI --> SSE
+
+  KD --> SEAL
+  UP --> SEAL
+  SEAL --> MEM
+
+  REC --> RQ
+  RQ --> MIRROR
+  RQ --> MEM
+  DEC --> RQ
+
+  REC --> ACT
+  ACT --> EXT
+  EXT --> MEM
+  EXT --> LIFE
+  ACT --> PROOF
+  PROOF --> MEM
+  ACT --> SSE
+
+  LOOP((~15s tick)) --> REC
+
+  MEM -->|cited| EXT
+  MEM -->|never cited| EVICT
+  LIFE --> MEM
+  MIRROR -.replay.-> MEM
 ```
 
 **Ownership:** `$creator` = session key (attribution); `$owner` = your wallet (extend/update/delete). Reads filter by creator + `project=cortex-ethns-2026`.
