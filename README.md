@@ -204,7 +204,9 @@ Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`.
 bun run build
 ```
 
-Set env vars in the Vercel project (same as local). `vercel.json` uses `framework: nextjs`. Landing assets are copied from `assets/` into `public/assets/` at build time.
+Set env vars in the Vercel project (same as local). `vercel.json` pins **Next.js** + `outputDirectory: dist` (must match `distDir` in `next.config.ts`). Landing video copies from `assets/` during `bun run build`.
+
+If a deploy **fails**, production stays on the last **Ready** build — check the Vercel dashboard or `vercel ls`. A green build log is not enough; the deployment must finish without the “output directory not found” error.
 
 Background workers (`CORTEX_AUTONOMOUS_LOOP`, anchor drain, evict watcher) are **off** on Vercel unless `CORTEX_START_WORKERS=1`. The console UI and browser-signed uploads still work on the hosted URL.
 
