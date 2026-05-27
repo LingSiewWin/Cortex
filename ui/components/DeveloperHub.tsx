@@ -27,13 +27,14 @@ interface ToolSpec {
 const MCP_TERMINAL = `# Cortex MCP server — sovereign, decay-aware memory
 # for any MCP client (Claude Desktop · Cursor · Cline)
 
-$ npx @cortex-network/mcp-server --wallet $CORTEX_WALLET
-  ▸ cortex memory engine online — Arkiv Braga (chain 60138453102)
-  ▸ tools registered: cortex_recall, cortex_act, cortex_store_document
-  ▸ transport: stdio · ready
+# from a clone of https://github.com/LingSiewWin/Cortex (requires bun):
+$ git clone https://github.com/LingSiewWin/Cortex.git && cd Cortex
+$ bun install && bun run build:plugin
+$ bun run mcp
+  ▸ tools: cortex_recall, cortex_act, cortex_store_document
+  ▸ transport: stdio · Arkiv Braga (chain 60138453102)
 
-# run from source in this repo:
-$ bun run mcp`;
+# Claude Code: /plugin install cortex-memory then cortex auth`;
 
 const OPENCLAW_TERMINAL = `# Cortex memory plugin for OpenClaw —
 # replaces the local memory slot with a portable, verifiable backend

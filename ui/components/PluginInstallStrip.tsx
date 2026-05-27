@@ -6,9 +6,9 @@
 
 import { useCallback, useState } from "react";
 
-const INSTALL_CMD = `/plugin install cortex
-cortex auth
-bun run mcp`;
+const INSTALL_CMD = `/plugin marketplace add LingSiewWin/Cortex
+/plugin install cortex-memory
+cortex auth`;
 
 export function PluginInstallStrip() {
   const [copied, setCopied] = useState(false);

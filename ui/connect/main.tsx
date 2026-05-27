@@ -28,7 +28,7 @@ import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useSignMessage } from "wagmi";
-import { CortexWalletProvider } from "../wallet/CortexWalletProvider";
+import { CortexConnectProvider } from "../wallet/CortexConnectProvider";
 import { keyDerivationMessage } from "../../src/lib/derivation-message";
 
 const qs = new URLSearchParams(window.location.search);
@@ -66,7 +66,16 @@ function ConnectAndSign() {
       if (!res.ok) throw new Error(`Local app rejected the signature (${res.status}).`);
       setPhase("done");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
+        setError(
+          "Could not reach the local Cortex auth server. Keep the terminal running " +
+            "(where you ran cortex auth), use the exact URL it printed, and try again. " +
+            "Or run: bun run cortex-auth from a repo clone, or use derive-user-signature.ts.",
+        );
+      } else {
+        setError(msg);
+      }
       setPhase("error");
     }
   }
@@ -121,7 +130,7 @@ function ConnectAndSign() {
 
 function App() {
   return (
-    <CortexWalletProvider>
+    <CortexConnectProvider>
       <div className="card">
         <h1>Connect Cortex</h1>
         <p>
@@ -129,9 +138,12 @@ function App() {
           leaves your browser — only the signature is sent, to this local app on
           your machine.
         </p>
+        <p className="hint">
+          Leave the terminal open until you see ✓ — closing it stops the local server.
+        </p>
         <ConnectAndSign />
       </div>
-    </CortexWalletProvider>
+    </CortexConnectProvider>
   );
 }
 
@@ -148,6 +160,7 @@ const STYLE = `
   }
   h1 { font-size: 20px; margin: 0 0 4px; }
   p { color: #a0a0a8; line-height: 1.5; font-size: 13.5px; }
+  .hint { font-size: 12px; color: #8b8b92; margin-top: 12px; }
   .connect-row { margin: 20px 0 4px; }
   .field { margin-top: 18px; }
   label { font-size: 12px; color: #8b8b92; text-transform: uppercase; letter-spacing: .05em; }

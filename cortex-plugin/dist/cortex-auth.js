@@ -5387,8 +5387,9 @@ async function main() {
   });
   const url = `http://127.0.0.1:${server.port}/?state=${state}`;
   log(`generated your session key (${sessionAddress}).`);
-  log(`opening your browser to connect your wallet\u2026
-   ${url}`);
+  log(`opening your browser to connect your wallet\u2026`);
+  log(`KEEP THIS TERMINAL OPEN until you sign \u2014 closing it causes "Failed to fetch".`);
+  log(`   ${url}`);
   openBrowser(url);
   const timeout = setTimeout(() => done.reject(new Error("timed out waiting for wallet connection")), AUTH_TIMEOUT_MS);
   let result;
