@@ -176,6 +176,8 @@ sequenceDiagram
 
 ## Claude Code plugin
 
+![Cortex MCP server and OpenClaw plugin — install strip on the console](./assets/plug-in.png)
+
 Install from `cortex-plugin/` (after `bun run build:plugin`):
 
 - **Hooks:** capture before compaction, recall at session start
