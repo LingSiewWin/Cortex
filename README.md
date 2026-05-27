@@ -4,9 +4,12 @@
 > cited; useless ones decay for free on Arkiv. Encrypted at rest with a key derived
 > from your wallet. _(AI + Privacy · Arkiv × ETHNS Builder Challenge)_
 
-**Live:** [cortex-arkiv.vercel.app](https://cortex-arkiv.vercel.app) — landing + console on **Arkiv Braga** testnet.
-
-**Repo:** [github.com/LingSiewWin/Cortex](https://github.com/LingSiewWin/Cortex)
+| | Link |
+|---|------|
+| **Deploy (Vercel)** | https://cortex-arkiv.vercel.app |
+| **Console** | https://cortex-arkiv.vercel.app/console |
+| **Source** | https://github.com/LingSiewWin/Cortex |
+| **Chain** | [Arkiv Braga testnet](https://explorer.braga.hoodi.arkiv.network/) · chainId `60138453102` |
 
 ---
 
@@ -40,7 +43,7 @@ Fill `.env` (see [Environment](#environment)). Then:
 
 ```bash
 bun run faucet-check    # session key has GLM on Braga
-bun run seed            # demo memories (run once, before the loop)
+bun run seed            # seed memories (run once, before the loop)
 bun run dev             # http://localhost:3000  →  /console
 ```
 
@@ -78,22 +81,90 @@ Never commit `.env`. See `.env.example` for the full list.
 
 ## Architecture
 
-```
-Browser (AppKit + wagmi)
-  ├─ Connect / switch to Braga
-  ├─ Sign key-derivation (adopt)
-  └─ mutateEntities (upload) ──► Arkiv precompile on Braga
+High-level data flow from browser → app → mirror → Arkiv Braga.
 
-Next.js (app/)
-  ├─ /api/*  → src/server/dispatch.ts → handlers in src/api/, src/ui-server.ts
-  ├─ /sse    → live agent + mirror events
-  └─ Workers → mirror init, optional autonomous loop (skipped on Vercel by default)
+```mermaid
+flowchart TB
+  subgraph Client["Browser"]
+    UI["Landing / Console UI"]
+    WK["Wallet · AppKit + wagmi"]
+    UI --- WK
+  end
 
-SQLite mirror (src/mirror/)
-  ├─ bun:sqlite (Bun) or better-sqlite3 (Next.js Node)
-  ├─ Replay daemon + MMR + anchor worker + evict watcher
-  └─ Cold rebuild from public Arkiv RPC (sovereignty proof)
+  subgraph Vercel["Next.js on Vercel"]
+    APP["App Router<br/>/ · /console"]
+    API["/api/* dispatch"]
+    SSE["/sse event stream"]
+    PREP["store-file/prepare<br/>embed + seal prep"]
+    APP --> API
+    APP --> SSE
+    API --> PREP
+  end
+
+  subgraph Agent["Server agent (optional workers)"]
+    LOOP["Autonomous loop<br/>recall → act → cite"]
+    ANCHOR["Anchor worker · MMR root"]
+    EVICT["Evict watcher"]
+    SK["Session key EOA<br/>$creator"]
+    LOOP --> SK
+    ANCHOR --> SK
+  end
+
+  subgraph Mirror["SQLite mirror (local / ephemeral on Vercel)"]
+    DB[("cortex-mirror.sqlite")]
+    MMR["MMR + citation counts"]
+    OUT["Act outbox"]
+    DB --- MMR
+    DB --- OUT
+  end
+
+  subgraph Chain["Arkiv Braga testnet"]
+    PRE["Precompile 0x…61726b6976"]
+    ENT["Entities · RaBitQ + attrs<br/>client-encrypted payload"]
+    L1["L1Block sync · decay"]
+    PRE --> ENT
+    ENT --> L1
+  end
+
+  subgraph External["External services"]
+    EMB["Embedding API<br/>OpenRouter / Cohere"]
+    LLM["Anthropic · distillation"]
+  end
+
+  WK -->|"adopt · sign derivation"| API
+  WK -->|"mutateEntities upload"| PRE
+  UI --> APP
+  UI -->|"SSE subscribe"| SSE
+
+  API --> PREP
+  PREP --> EMB
+  PREP -->|"sealed create params"| WK
+
+  LOOP -->|"recall / extend"| PRE
+  LOOP --> DB
+  ANCHOR --> PRE
+  ANCHOR --> DB
+  EVICT --> DB
+  EVICT -->|"memory.evicted"| SSE
+
+  PRE --> ENT
+  API --> DB
+  SSE --> DB
+
+  LLM -.->|"semantic tier"| LOOP
+
+  classDef chain fill:#1a1008,stroke:#ff5a00,color:#fff
+  classDef client fill:#f5f5f0,stroke:#333,color:#111
+  class Chain chain
+  class Client client
 ```
+
+| Path | Role |
+|------|------|
+| **Human upload** | Wallet signs on Braga after server prepares embed + sealed payload |
+| **Agent loop** | Session key writes/cites via mirror-first path; extends on citation |
+| **Mirror** | Owns hot reads, MMR, outbox; rebuildable from public Arkiv RPC |
+| **Decay** | Uncited entities expire; L1Block removes stale state for free |
 
 **Ownership:** `$creator` = session key (attribution); `$owner` = your wallet (extend/update/delete). Reads filter by creator + `project=cortex-ethns-2026`.
 
@@ -117,7 +188,7 @@ SQLite mirror (src/mirror/)
 |------|----------|
 | `app/` | Next.js routes: `/`, `/console`, `/api/[[...path]]`, `/sse` |
 | `lib/web/` | AppKit providers, connect gate, browser upload hook |
-| `ui/` | Landing, console, MemoryGraph, demo components |
+| `ui/` | Landing, console, MemoryGraph, upload UI |
 | `src/lib/` | Arkiv client, crypto, sealing, Braga preflight |
 | `src/compression/` | RaBitQ + embeddings + document payloads |
 | `src/darwinian/` | extend, recall, citation, distill |
@@ -148,13 +219,16 @@ Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`.
 
 ## Deploy (Vercel)
 
+**Production:** https://cortex-arkiv.vercel.app  
+**Console:** https://cortex-arkiv.vercel.app/console
+
 ```bash
 bun run build
 ```
 
 Set env vars in the Vercel project (same as local). `vercel.json` uses `framework: nextjs`. Landing assets are copied from `assets/` into `public/assets/` at build time.
 
-Background workers (`CORTEX_AUTONOMOUS_LOOP`, anchor drain, evict watcher) are **off** on Vercel unless `CORTEX_START_WORKERS=1`. The demo UI and browser-signed uploads still work.
+Background workers (`CORTEX_AUTONOMOUS_LOOP`, anchor drain, evict watcher) are **off** on Vercel unless `CORTEX_START_WORKERS=1`. The console UI and browser-signed uploads still work on the hosted URL.
 
 ---
 
@@ -179,7 +253,7 @@ Example Braga round-trip: [explorer tx](https://explorer.braga.hoodi.arkiv.netwo
 | `extend reverted: newBtl <= currentBtl` | Use accumulative extend in `src/darwinian/extend.ts` |
 | Stuck nonce on Braga | Cancel/speed up pending tx in wallet |
 | Smoke test hangs | `bun run faucet-check`; fund session key |
-| API 500 on Vercel | Mirror/workers need SQLite — use local `bun run dev` for full loop demo |
+| API 500 on Vercel | Mirror/workers need SQLite — use local `bun run dev` for full autonomous loop |
 
 **Braga links**
 
@@ -189,9 +263,9 @@ Example Braga round-trip: [explorer tx](https://explorer.braga.hoodi.arkiv.netwo
 
 ---
 
-## Security (public demo)
+## Security (public deployment)
 
-`/api/citation/manual` and `/api/loop/control` are **unauthenticated** for local demos (spend guard + rate limits only). For a public URL, gate writes behind the SIWE `cortex_session` cookie and cap session-key funding.
+`/api/citation/manual` and `/api/loop/control` are **unauthenticated** on the hosted URL for frictionless exploration (spend guard + rate limits only). For production, gate writes behind the SIWE `cortex_session` cookie and cap session-key funding.
 
 ---
 
