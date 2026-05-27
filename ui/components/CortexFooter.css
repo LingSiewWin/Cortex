@@ -177,13 +177,22 @@
   user-select: none;
 }
 .cxf-tree__link {
+  font: inherit;
   font-size: 13px;
   color: var(--cxf-muted);
   text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
   transition: color 200ms ease;
 }
 .cxf-tree__link:hover {
   color: var(--cxf-ember);
+  text-decoration: none;
 }
 
 /* --- bottom bar --- */

@@ -37,7 +37,7 @@ interface ManualResult {
 }
 
 interface CitationWidgetProps {
-  /** Compact layout for demo mode — hides phase track, renames labels. */
+  /** Compact layout for judge mode — hides phase track, renames labels. */
   variant?: "full" | "compact";
 }
 

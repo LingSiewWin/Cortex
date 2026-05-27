@@ -208,15 +208,16 @@ export async function handlePlaygroundRecall(
     k = b.k as number;
   }
 
-  let entityType: "observation" | "episode" | "rule" | undefined;
+  let entityType: "observation" | "episode" | "rule" | "document" | undefined;
   if (b.entityType !== undefined) {
     if (
       b.entityType !== "observation" &&
       b.entityType !== "episode" &&
-      b.entityType !== "rule"
+      b.entityType !== "rule" &&
+      b.entityType !== "document"
     ) {
       return errorResponse(
-        "entityType must be one of observation|episode|rule",
+        "entityType must be one of observation|episode|rule|document",
         400,
       );
     }

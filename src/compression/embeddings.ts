@@ -62,15 +62,32 @@ export function isMissingEmbeddingKey(err: unknown): boolean {
   );
 }
 
+/** Reject README placeholders and empty strings — they pass truthy checks but 401 at runtime. */
+export function isUsableEmbeddingKey(key: string | undefined | null): boolean {
+  if (typeof key !== "string") return false;
+  const v = key.trim();
+  if (v.length < 16) return false;
+  if (/\.{2,}|…|placeholder|your[-_]?key/i.test(v)) return false;
+  return true;
+}
+
+function envEmbeddingKey(name: string): string | undefined {
+  const v = process.env[name];
+  return isUsableEmbeddingKey(v) ? v!.trim() : undefined;
+}
+
 /** True if ANY embedding provider key is configured. Lets hooks warn up-front. */
 export function hasEmbeddingKey(): boolean {
-  return Boolean(
-    process.env["OPENAI_API_KEY"] ||
-      process.env["OPENROUTER_API_KEY"] ||
-      process.env["VOYAGE_API_KEY"] ||
-      process.env["COHERE_API_KEY"] ||
-      readConfig()?.embeddingKey,
-  );
+  if (
+    envEmbeddingKey("OPENAI_API_KEY") ||
+    envEmbeddingKey("OPENROUTER_API_KEY") ||
+    envEmbeddingKey("VOYAGE_API_KEY") ||
+    envEmbeddingKey("COHERE_API_KEY")
+  ) {
+    return true;
+  }
+  const cfg = readConfig();
+  return isUsableEmbeddingKey(cfg?.embeddingKey);
 }
 
 /** The polished, friendly "set your key" message. One place, reused everywhere. */
@@ -226,23 +243,23 @@ export async function embedText(text: string): Promise<Float32Array> {
   }
   // Provider order: direct OpenAI (the key most devs have) → OpenRouter → Cohere.
   // All return 1536-d, so RaBitQ stays locked and stable.
-  const openAiKey = process.env["OPENAI_API_KEY"];
+  const openAiKey = envEmbeddingKey("OPENAI_API_KEY");
   if (openAiKey) return embedViaOpenAI(text, openAiKey);
 
-  const openRouterKey = process.env["OPENROUTER_API_KEY"];
+  const openRouterKey = envEmbeddingKey("OPENROUTER_API_KEY");
   if (openRouterKey) return embedViaOpenRouter(text, openRouterKey);
 
   // Voyage — the Claude/Anthropic-ecosystem path (Anthropic has no embeddings API).
-  const voyageKey = process.env["VOYAGE_API_KEY"];
+  const voyageKey = envEmbeddingKey("VOYAGE_API_KEY");
   if (voyageKey) return embedViaVoyage(text, voyageKey);
 
-  const cohereKey = process.env["COHERE_API_KEY"];
+  const cohereKey = envEmbeddingKey("COHERE_API_KEY");
   if (cohereKey) return embedViaCohere(text, cohereKey);
 
   // Fallback: the key `cortex auth` stored in ~/.cortex/config.json, routed to the
   // provider it belongs to. Env always wins above; this only fires when no env key.
   const cfg = readConfig();
-  if (cfg?.embeddingKey) {
+  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
     switch (cfg.embeddingProvider ?? "openai") {
       case "openrouter":
         return embedViaOpenRouter(text, cfg.embeddingKey);

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getWalletClient } from "@wagmi/core";
+import { getChainId, getWalletClient } from "@wagmi/core";
 import { useSwitchChain } from "wagmi";
 import type { Hex } from "@/ui/types";
-import type { PreparedUpload } from "@/src/lib/store-file-prepare";
+import type { PreparedUploadResponse } from "@/lib/web/types/upload-quote";
 import { buildSealedDocumentCreate } from "@/src/lib/browser-store-document";
 import { createBrowserArkivWallet } from "@/src/lib/browser-arkiv-wallet";
 import {
@@ -12,6 +12,8 @@ import {
   formatBragaError,
   txParamsFromEstimate,
 } from "@/src/lib/braga-preflight";
+import { ensureBragaNetwork } from "../ensure-braga";
+import { assertBragaProviderReady } from "../verify-braga-provider";
 import { bragaChain, wagmiConfig } from "../wagmi";
 import { useCortexIdentity } from "./use-cortex-identity";
 
@@ -25,12 +27,18 @@ export function useBrowserUpload() {
   const [step, setStep] = useState<UploadStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [lastTx, setLastTx] = useState<string | null>(null);
+  const [lastEntityKey, setLastEntityKey] = useState<Hex | null>(null);
 
   const upload = useCallback(
-    async (file: File, caption?: string) => {
+    async (
+      file: File,
+      caption?: string,
+      opts?: { prepared?: PreparedUploadResponse },
+    ) => {
       if (!identity.address) throw new Error("Connect wallet first");
       setError(null);
       setLastTx(null);
+      setLastEntityKey(null);
 
       try {
         setStep("switch");
@@ -39,14 +47,20 @@ export function useBrowserUpload() {
         setStep("adopt");
         const payloadKey = identity.payloadKey ?? (await identity.adopt());
 
-        setStep("prepare");
-        const body = new FormData();
-        body.set("file", file);
-        if (caption?.trim()) body.set("caption", caption.trim());
-
-        const prepRes = await fetch("/api/store-file/prepare", { method: "POST", body });
-        const prepJson = (await prepRes.json()) as PreparedUpload & { error?: string };
-        if (!prepRes.ok) throw new Error(prepJson.error ?? prepRes.statusText);
+        let prepJson = opts?.prepared;
+        if (!prepJson) {
+          setStep("prepare");
+          const body = new FormData();
+          body.set("file", file);
+          if (caption?.trim()) body.set("caption", caption.trim());
+          const ownerQ = `?owner=${encodeURIComponent(identity.address)}`;
+          const prepRes = await fetch(`/api/store-file/prepare${ownerQ}`, {
+            method: "POST",
+            body,
+          });
+          prepJson = (await prepRes.json()) as PreparedUploadResponse & { error?: string };
+          if (!prepRes.ok) throw new Error((prepJson as { error?: string }).error ?? prepRes.statusText);
+        }
 
         const createParams = await buildSealedDocumentCreate({
           prepared: prepJson,
@@ -55,12 +69,27 @@ export function useBrowserUpload() {
 
         const wagmiWallet = await getWalletClient(wagmiConfig, { chainId: bragaChain.id });
         if (!wagmiWallet?.account) {
-          throw new Error("Wallet not on Braga — open Networks in the wallet modal.");
+          throw new Error("Wallet not connected — reconnect in the header.");
+        }
+
+        await ensureBragaNetwork(wagmiWallet);
+        const chainId = await getChainId(wagmiConfig);
+        if (Number(chainId) !== Number(bragaChain.id)) {
+          throw new Error(
+            `Wallet must be on Arkiv Braga (chain ${bragaChain.id}) before signing. ` +
+              `In MetaMask, pick Braga from the network menu — GLM gas does not appear on Ethereum.`,
+          );
         }
 
         const estimate = await assertBragaFundedForWrite(
           wagmiWallet.account.address,
           createParams,
+        );
+
+        await assertBragaProviderReady(
+          wagmiWallet,
+          wagmiWallet.account.address,
+          estimate.maxCostWei,
         );
 
         setStep("sign");
@@ -70,12 +99,27 @@ export function useBrowserUpload() {
           txParamsFromEstimate(estimate),
         );
 
+        const entityKey = result.createdEntities[0] as Hex | undefined;
+
+        if (entityKey) {
+          try {
+            await fetch("/api/memories/register", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ entityKey, txHash: result.txHash }),
+            });
+          } catch {
+            /* mirror catch-up is best-effort; topology refetches on next poll */
+          }
+        }
+
         setStep("done");
         setLastTx(result.txHash);
+        setLastEntityKey(entityKey ?? null);
         setStep("idle");
         return {
           txHash: result.txHash as Hex,
-          entityKey: result.createdEntities[0] as Hex | undefined,
+          entityKey,
           explorer: `${EXPLORER}/tx/${result.txHash}`,
         };
       } catch (e) {
@@ -89,5 +133,5 @@ export function useBrowserUpload() {
     [identity, switchChainAsync],
   );
 
-  return { upload, step, error, lastTx, identity };
+  return { upload, step, error, lastTx, lastEntityKey, identity };
 }

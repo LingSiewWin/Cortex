@@ -16,7 +16,7 @@
  *     render (opacity → 0). Emitting eviction when the bar hits zero is
  *     consistent with what the viewer sees, and doesn't depend on the daemon
  *     running or on Braga's ArkivEntityExpired log arriving inside a 2–3 min
- *     demo window. The daemon still records the chain-confirmed eviction into
+ *     judge window. The daemon still records the chain-confirmed eviction into
  *     `/api/decay` ("Recently evicted — free GC") as the on-chain proof.
  *
  * Honesty: the lease we paid for has elapsed; Arkiv auto-deletes expired

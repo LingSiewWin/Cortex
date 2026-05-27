@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { WebProviders } from "@/lib/web/providers";
 import "../ui/styles.css";
 import "../ui/landing-editorial.css";
+import "../ui/console-editorial.css";
 
 export const metadata: Metadata = {
   title: "Cortex — Darwinian memory on Arkiv",

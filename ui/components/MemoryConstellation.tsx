@@ -210,7 +210,7 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
         <div className="card constellation-card">
           <div className="constellation empty">
             <div className="constellation-empty mono">
-              // no memories yet — <code>bun run demo-flow</code> to seed
+              // no memories yet — <code>bun run cite-flow</code> to seed
             </div>
           </div>
         </div>

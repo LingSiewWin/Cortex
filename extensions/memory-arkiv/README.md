@@ -45,12 +45,15 @@ The plugin reuses Cortex's runtime env (Braga RPC is built in):
 - `CORTEX_USER_SIGNATURE` **or** `CORTEX_USER_PRIVATE_KEY` — the wallet that seals/opens memories.
 - `COHERE_API_KEY` (or configured embedding provider).
 
-## Proof without a gateway
+## Try it yourself
 
-We validated the exact tool surface against real Braga without a running gateway:
+The adapter ships in-repo; we have **not** run it inside a live OpenClaw gateway in this
+environment. Validate the tool surface against Braga first:
 
 ```bash
 CORTEX_USER_PRIVATE_KEY=0x<primary-eoa-key> bun scripts/openclaw-harness.ts
 ```
 
-It runs `memory_store` → mirror sync → `memory_recall` end-to-end through the adapter.
+That runs `memory_store` → mirror sync → `memory_recall` through the same code the plugin
+wraps. Then install the plugin and point `plugins.slots.memory` at `memory-arkiv` — see
+[OpenClaw plugin docs](https://docs.openclaw.ai/plugins/manage-plugins).

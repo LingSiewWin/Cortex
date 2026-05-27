@@ -65,8 +65,14 @@ test("no key → throws MissingEmbeddingKeyError with an actionable message", as
 });
 
 test("any one key present → hasEmbeddingKey true (no throw on the gate)", () => {
-  process.env.OPENAI_API_KEY = "sk-test";
+  process.env.OPENAI_API_KEY = "sk-test-key-long-enough-ok";
   expect(hasEmbeddingKey()).toBe(true);
+});
+
+test("placeholder env values do not count as configured", () => {
+  process.env.OPENROUTER_API_KEY = "sk-or-...";
+  process.env.COHERE_API_KEY = "co-...";
+  expect(hasEmbeddingKey()).toBe(false);
 });
 
 test("isMissingEmbeddingKey is false for ordinary errors", () => {

@@ -83,6 +83,11 @@ export class GraphStore {
     return this.clock;
   }
 
+  /** Sparkle the node that owns `entityKey` (new memory or citation). */
+  sparkle(entityKey: string, promotedTo?: "episodic" | "rule"): void {
+    this.pulse(entityKey, promotedTo);
+  }
+
   /** Citation flash on the node owning `entityKey`. Optional promotion retint. */
   pulse(entityKey: string, promotedTo?: "episodic" | "rule"): void {
     const id = this.memberToNode.get(entityKey.toLowerCase());
@@ -128,10 +133,10 @@ export class GraphStore {
         existing.leaseTarget = clamp01(node.leaseRatio);
         if (!existing.dying) existing.tier = node.tier;
       } else {
-        // New node: spawn with a fade-in. Birth phase offset = id for variety.
+        // New node: spawn with a fade-in + bright pulse (new synapse sparkle).
         this.anim.set(node.id, {
-          pulse: 0,
-          lease: 0,
+          pulse: 1,
+          lease: 0.35,
           leaseTarget: clamp01(node.leaseRatio),
           birth: this.clock,
           phase: phaseForTopologyNode(node.memberIds, node.id),

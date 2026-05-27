@@ -13,11 +13,11 @@
  *
  * A judge landing on /console sees this cascade fire within seconds — no CLI,
  * no typing. The same code path backs the manual "Cite" override (api/citation.ts)
- * and `bun run demo-flow`, so every surface animates identically.
+ * and `bun run cite-flow`, so every surface animates identically.
  *
  * Allowance gate: when the remaining allowance drops below
  * `allowanceFloorWei + estimatedTickCostWei`, the loop auto-pauses (so a live
- * demo can't drain the session-key wallet mid-pitch). Resumable manually.
+ * judge can't drain the session-key wallet mid-pitch). Resumable manually.
  *
  * Testability: every side-effecting dependency (recall, act, timer, RNG,
  * allowance reader, clock) is injectable. Tests drive deterministic ticks via
@@ -73,7 +73,7 @@ export interface AutonomousLoopOptions {
   /** Estimated gas cost per tick (drives allowance.spent + the gate). Default 4e13 (~0.00004 ETH). */
   estimatedTickCostWei?: bigint;
   /**
-   * Soft session budget for the demo. When no `readAllowanceWei` dep is wired,
+   * Soft session budget for the walkthrough. When no `readAllowanceWei` dep is wired,
    * the loop tracks spend internally against this budget so allowance.spent
    * reports a real decrementing remaining. Default 0.01 GLM.
    */
@@ -97,7 +97,7 @@ export interface AutonomousLoopHandle {
 const DEFAULT_CADENCE_MS = 15_000;
 const DEFAULT_INITIAL_DELAY_MS = 2_000;
 const DEFAULT_TICK_COST_WEI = 40_000_000_000_000n; // ~0.00004 ETH
-const DEFAULT_SESSION_BUDGET_WEI = 10_000_000_000_000_000n; // 0.01 GLM soft demo budget
+const DEFAULT_SESSION_BUDGET_WEI = 10_000_000_000_000_000n; // 0.01 GLM soft judge budget
 
 /**
  * Start the autonomous loop. Returns a handle for pause/resume/interrupt/stop.
@@ -124,8 +124,8 @@ export function startAutonomousLoop(
     (async (userPrimaryEOA: Hex) => {
       // No-op SQLite check unless a memory crossed the semantic threshold
       // (cited ≥5× across ≥3 sessions). Only then does it call the LLM + write
-      // a RULE entity. Single-session demos won't trigger it — see
-      // scripts/distill-demo.ts to prove the RULE tier end-to-end.
+      // a RULE entity. Single-session runs won't trigger it — see
+      // scripts/distill-run.ts to prove the RULE tier end-to-end.
       await distillIfReady({ userPrimaryEOA });
     });
   let spentWei = 0n;
@@ -329,7 +329,7 @@ export function startAutonomousLoop(
 }
 
 /**
- * Default curated query pool. These map to memories seeded by the demo /
+ * Default curated query pool. These map to memories seeded by the walkthrough /
  * seed scripts so recall always returns relevant hits. Override via options.
  */
 export const DEFAULT_QUERY_POOL: string[] = [
@@ -339,6 +339,6 @@ export const DEFAULT_QUERY_POOL: string[] = [
   "What ERC standards does Cortex compose?",
   "Why does accumulative extend matter for agent memory?",
   "What's the difference between $creator and $owner?",
-  "How does the Synaptic Market price encrypted rules?",
+  "When does Cortex promote a memory to a semantic rule?",
   "What is the Darwinian primitive in Cortex?",
 ];

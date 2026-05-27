@@ -37,10 +37,12 @@ interface EncodeResponse {
 
 interface RecallHit {
   entityKey: Hex;
-  entityType: "observation" | "episode" | "rule";
+  entityType: "observation" | "episode" | "rule" | "document";
   score: number;
   expiresAtBlock: number;
   payloadPreview?: string;
+  /** Full text when the hit is a decrypted document (e.g. README upload). */
+  text?: string;
   attributes: { key: string; value: string | number }[];
 }
 
@@ -289,7 +291,8 @@ function RecallPanel({ onInspectKey }: { onInspectKey?: (k: Hex) => void }) {
       {hits !== null ? (
         hits.length === 0 ? (
           <div className="empty">
-            No memories yet. Run <code>bun run demo-flow</code> to seed some.
+            No matches in your mirror yet. Upload a file on /console or run{" "}
+            <code>bun run mirror</code> to sync Braga.
           </div>
         ) : (
           <div className="playground-hits">
@@ -302,7 +305,11 @@ function RecallPanel({ onInspectKey }: { onInspectKey?: (k: Hex) => void }) {
                     score {h.score.toFixed(4)}
                   </span>
                 </div>
-                {h.payloadPreview ? (
+                {h.text ? (
+                  <div className="playground-hit-preview playground-hit-text">
+                    {h.text.length > 400 ? `${h.text.slice(0, 400)}…` : h.text}
+                  </div>
+                ) : h.payloadPreview ? (
                   <div className="playground-hit-preview">
                     {h.payloadPreview}
                   </div>
@@ -336,8 +343,11 @@ export function RaBitQPlayground({ onInspectKey }: RaBitQPlaygroundProps = {}) {
       </div>
 
       <div className="section playground-section">
-        <div className="section-title">
-          Recall Playground · query the compressed memory store
+        <div className="section-title">Recall Playground · semantic search</div>
+        <div className="section-hint">
+          Wallet uploads are <code>document</code> entities (full README text). Agent seeds
+          are <code>observation</code> (~198 B fingerprints). Open the hit whose type matches
+          what you stored — or use <strong>Open in inspector</strong> on the upload success line.
         </div>
         <RecallPanel onInspectKey={onInspectKey} />
       </div>

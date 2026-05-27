@@ -87,6 +87,14 @@ function ArrowRight() {
   );
 }
 
+function ArrowLeft() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M19 12H5M11 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
 function Hero() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -109,34 +117,42 @@ function Hero() {
       <div className="cx-hero__scrim" />
 
       <header className="cx-topbar">
-        <Wordmark />
         <motion.div
-          className="cx-subnav"
+          className="cx-topbar__row"
           initial="initial"
           animate="animate"
-          transition={{ staggerChildren: 0.1, delayChildren: 0.5 }}
+          transition={{ staggerChildren: 0.08, delayChildren: 0.1 }}
         >
-          <motion.div className="cx-subnav__col mono" variants={fadeUp}>
-            Sovereign
-            <br />
-            Memory
-            <br />
-            Engine
+          <Wordmark />
+          <motion.div variants={fadeUp}>
+            <ConsoleLink className="cx-topbar-cta">
+              <ArrowLeft />
+              <span>Open Console</span>
+            </ConsoleLink>
           </motion.div>
-          <motion.div className="cx-subnav__arrow" variants={fadeUp}>
-            <ArrowRight />
-          </motion.div>
-          <motion.div className="cx-subnav__lead mono" variants={fadeUp}>
-            Decay-aware agent memory on Arkiv — compressed, cited to survive,
-            encrypted with your wallet.
-          </motion.div>
-          <motion.nav className="cx-subnav__nav mono" variants={fadeUp}>
-            <a href="#what">What you get</a>
-            <a href="#lifecycle">Lifecycle</a>
-            <a href="#install">Install</a>
-            <ConsoleLink>Open Console</ConsoleLink>
-          </motion.nav>
         </motion.div>
+        <motion.p
+          className="cx-topbar__tagline mono"
+          variants={fadeUp}
+          initial="initial"
+          animate="animate"
+          transition={{ delay: 0.45, duration: 0.7, ease: EASE }}
+        >
+          Sovereign memory engine — decay-aware agent memory on Arkiv, compressed,
+          cited to survive, encrypted with your wallet.
+        </motion.p>
+        <motion.h1
+          className="cx-hero__headline cx-topbar__headline"
+          variants={fadeUp}
+          initial="initial"
+          animate="animate"
+          transition={{ delay: 0.55, duration: 0.85, ease: EASE }}
+        >
+          Darwinian memory
+          <br />
+          for AI agents
+          <span className="cx-hero__sub">Owned by your wallet.</span>
+        </motion.h1>
       </header>
 
       <div className="cx-hero__body">
@@ -144,26 +160,13 @@ function Hero() {
           className="cx-hero__lead"
           initial="initial"
           animate="animate"
-          transition={{ staggerChildren: 0.12, delayChildren: 0.7 }}
+          transition={{ staggerChildren: 0.12, delayChildren: 0.65 }}
         >
-          <motion.h1 className="cx-hero__headline" variants={fadeUp}>
-            Darwinian memory
-            <br />
-            for AI agents
-            <span className="cx-hero__sub">Owned by your wallet.</span>
-          </motion.h1>
           <motion.p className="cx-hero__desc" variants={fadeUp}>
             Observations are RaBitQ-compressed and sealed before they reach Braga.
             When an agent cites a memory in a decision, Cortex extends its
             expiration. What never gets cited decays — no manual cleanup.
           </motion.p>
-          <motion.div variants={fadeUp}>
-            <ConsoleLink className="cx-btn">
-              <span className="cx-btn__fill" />
-              <span>Open Console</span>
-              <ArrowRight />
-            </ConsoleLink>
-          </motion.div>
         </motion.div>
 
         <motion.aside
@@ -231,8 +234,7 @@ function Statement() {
         viewport={{ once: true, margin: "-100px" }}
         transition={{ duration: 0.9, ease: EASE }}
       >
-        An agent memory layer where <em>utility</em> sets expiration — not a fixed
-        lifespan you renew by hand.
+        Memories that behave like human memory — forget like humans do.
       </motion.h2>
       <motion.div
         className="cx-pills"
@@ -400,7 +402,7 @@ function Economics({ economics }: { economics: EconomicsResponse | null }) {
         </div>
         <div className="cx-tri__cell">
           <div className="cx-tri__label mono">Your memory</div>
-          <div className="cx-tri__value">Personal</div>
+          <div className="cx-tri__value">Privacy</div>
           <div className="cx-tri__sub">
             Wallet-owned on Arkiv — connect in the console to see your graph,
             tiers, and recall
@@ -422,59 +424,97 @@ function Economics({ economics }: { economics: EconomicsResponse | null }) {
   );
 }
 
-function HowItFits() {
-  return (
-    <section className="cx-band">
-      <div className="cx-label mono">
-        <span className="cx-label__n">[ 05 ]</span>
-        <b>How it fits Arkiv</b>
-      </div>
-      <div className="cx-prose">
-        <p>
-          Arkiv stores <strong>bytes × lifetime</strong>. Agent embeddings are
-          naturally large (~6 KB each at full float width). Cortex stores a
-          RaBitQ-compressed fingerprint (~200 B) plus attributes, and only pays
-          to <strong>extend</strong> entities the agent cites — accumulative
-          extend, not a naive “add 24 hours”.
-        </p>
-        <p>
-          Payloads are encrypted client-side; Braga holds ciphertext. Your local
-          SQLite mirror catches every event so you can rebuild if a host goes
-          away — see <code>bun scripts/sovereignty-proof.ts</code>.
-        </p>
-      </div>
-    </section>
-  );
-}
+const ARKIV_DIAGRAM = `      ◇
+     ╱ ╲
+    ╱6KB╲
+    ╲   ╱
+     ╲ ╱
+      │
+      ◆
+   ┌─────┐
+   │200B │
+   └──┬──┘
+      │ cite
+   ┌──▼──┐
+   │ ext │
+   └─────┘`;
 
-function Honest() {
+const TRUST_DIAGRAM = `  ┌─────────┐
+  │ session │─┐
+  │  EIP712 │ │
+  └─────────┘ │
+        ┌─────▼─────┐
+        │  wallet   │
+        │  $owner   │
+        └─────┬─────┘
+              │◇
+          ┌───▼───┐
+          │ AES   │
+          └───────┘`;
+
+function ProtocolGrid() {
   return (
-    <section className="cx-band" style={{ paddingTop: 0 }}>
-      <div className="cx-label mono">
-        <span className="cx-label__n">[ 06 ]</span>
-        <b>Trust assumptions</b>
-      </div>
-      <div className="cx-prose">
-        <ul>
-          <li>
-            <strong>Session-key relayer.</strong> The autonomous loop signs with
-            a backend session key, bounded by EIP-712 SessionAuthorization. Your
-            wallet remains <code>$owner</code>.
-          </li>
-          <li>
-            <strong>Browser uploads are yours.</strong> File store and key
-            adoption use your wallet on Braga; we never hold your derivation
-            secret.
-          </li>
-          <li>
-            <strong>Semantic tier capped at one year.</strong> Until Arkiv&apos;s
-            fee model is final, we do not promise multi-year leases.
-          </li>
-          <li>
-            <strong>No “fully decentralised” marketing.</strong> Braga is a
-            testnet with operated infrastructure. We describe what ships today.
-          </li>
-        </ul>
+    <section className="cx-band cx-protocol" id="protocol">
+      <div className="cx-protocol__frame">
+        <article className="cx-protocol__card">
+          <header className="cx-protocol__head mono">
+            <span className="cx-label__n">[ 05 ]</span>
+            <b>How it fits Arkiv</b>
+          </header>
+          <div className="cx-protocol__body">
+            <pre className="cx-protocol__ascii mono" aria-hidden>
+              {ARKIV_DIAGRAM}
+            </pre>
+            <div className="cx-prose cx-prose--card">
+              <p>
+                Arkiv stores <strong>bytes × lifetime</strong>. Agent embeddings are
+                naturally large (~6 KB each at full float width). Cortex stores a
+                RaBitQ-compressed fingerprint (~200 B) plus attributes, and only pays
+                to <strong>extend</strong> entities the agent cites — accumulative
+                extend, not a naive “add 24 hours”.
+              </p>
+              <p>
+                Payloads are encrypted client-side; Braga holds ciphertext. Your local
+                SQLite mirror catches every event so you can rebuild if a host goes
+                away — see <code>bun scripts/sovereignty-proof.ts</code>.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <article className="cx-protocol__card">
+          <header className="cx-protocol__head mono">
+            <span className="cx-label__n">[ 06 ]</span>
+            <b>Trust assumptions</b>
+          </header>
+          <div className="cx-protocol__body">
+            <pre className="cx-protocol__ascii mono" aria-hidden>
+              {TRUST_DIAGRAM}
+            </pre>
+            <div className="cx-prose cx-prose--card">
+              <ul>
+                <li>
+                  <strong>Session-key relayer.</strong> The autonomous loop signs with
+                  a backend session key, bounded by EIP-712 SessionAuthorization. Your
+                  wallet remains <code>$owner</code>.
+                </li>
+                <li>
+                  <strong>Browser uploads are yours.</strong> File store and key
+                  adoption use your wallet on Braga; we never hold your derivation
+                  secret.
+                </li>
+                <li>
+                  <strong>Semantic tier capped at one year.</strong> Until Arkiv&apos;s
+                  fee model is final, we do not promise multi-year leases.
+                </li>
+                <li>
+                  <strong>No “fully decentralised” marketing.</strong> Braga is a
+                  testnet with operated infrastructure. We describe what ships today.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
   );
@@ -508,8 +548,7 @@ export function Landing() {
         <Lifecycle />
         <Install />
         <Economics economics={economics} />
-        <HowItFits />
-        <Honest />
+        <ProtocolGrid />
         <CortexFooter />
       </div>
     </PixelWaveProvider>

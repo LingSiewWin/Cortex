@@ -544,6 +544,62 @@ code,
   justify-content: flex-end;
   margin-top: 16px;
 }
+.inspector-readable {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.inspector-text {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: var(--text, #e8e8ec);
+}
+.inspector-preview {
+  word-break: break-word;
+}
+
+.braga-gas-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 90, 0, 0.06);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.braga-gas-banner-warn {
+  border-color: rgba(255, 180, 0, 0.35);
+  background: rgba(255, 180, 0, 0.08);
+}
+.braga-gas-banner-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #9a9aa8);
+}
+.braga-gas-banner-body {
+  margin: 0;
+}
+.braga-gas-banner-alert {
+  margin: 8px 0 0;
+  color: #ffb84d;
+}
+.braga-gas-banner-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
 
 /* ===========================================================================
  *  Landing page (Road A — /) — light theme via .landing scope
@@ -2089,7 +2145,7 @@ code,
 }
 
 /* ===========================================================================
- * Two-pane demo layout (Pane 1 live engine · Pane 2 developer hub)
+ * Two-pane judge layout (Pane 1 live engine · Pane 2 developer hub)
  * =========================================================================== */
 
 /* The two-pane console needs more room than the default 1080px reading column. */
@@ -2337,20 +2393,20 @@ code,
 }
 
 /* ===========================================================================
- * Demo console layout — graph-first submission surface
+ * Judge console layout — graph-first submission surface
  * =========================================================================== */
 
-.app-demo {
+.app-judge {
   max-width: min(1440px, 100%);
 }
 
-.console-demo {
+.console-judge {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.demo-hero {
+.graph-hero {
   position: relative;
   border-radius: var(--radius);
   overflow: hidden;
@@ -2359,13 +2415,13 @@ code,
   min-height: min(72vh, 820px);
 }
 
-.demo-hero .memory-graph {
+.graph-hero .memory-graph {
   height: min(72vh, 820px);
   min-height: 480px;
   border-radius: 0;
 }
 
-.demo-overlay {
+.graph-overlay {
   position: absolute;
   left: 0;
   right: 0;
@@ -2374,24 +2430,24 @@ code,
   padding: 14px 16px;
 }
 
-.demo-overlay-top {
+.graph-overlay-top {
   top: 0;
   background: linear-gradient(180deg, rgba(7, 7, 11, 0.92) 0%, rgba(7, 7, 11, 0) 100%);
 }
 
-.demo-overlay-bottom {
+.graph-overlay-bottom {
   bottom: 36px;
   display: flex;
   justify-content: center;
 }
 
-.demo-stat-row {
+.graph-stat-row {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
 }
 
-.demo-stat {
+.graph-stat {
   min-width: 140px;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
@@ -2400,7 +2456,7 @@ code,
   backdrop-filter: blur(8px);
 }
 
-.demo-stat-label {
+.graph-stat-label {
   display: block;
   font-size: 10px;
   text-transform: uppercase;
@@ -2409,21 +2465,21 @@ code,
   margin-bottom: 4px;
 }
 
-.demo-stat-value {
+.graph-stat-value {
   display: block;
   font-size: 18px;
   font-weight: 600;
   line-height: 1.2;
 }
 
-.demo-stat-sub {
+.graph-stat-sub {
   display: block;
   margin-top: 4px;
   font-size: 11px;
   color: var(--muted);
 }
 
-.demo-legend {
+.graph-legend {
   position: absolute;
   left: 0;
   right: 0;
@@ -2437,7 +2493,7 @@ code,
   pointer-events: none;
 }
 
-.demo-action {
+.graph-action {
   margin: 0;
   padding: 8px 14px;
   border-radius: 999px;
@@ -2449,12 +2505,12 @@ code,
   text-align: center;
 }
 
-.demo-action-idle {
+.graph-action-idle {
   border-color: rgba(255, 255, 255, 0.12);
   color: var(--muted);
 }
 
-.demo-action-label {
+.graph-action-label {
   color: var(--accent);
   margin-right: 8px;
   text-transform: uppercase;
@@ -2462,11 +2518,11 @@ code,
   font-size: 10px;
 }
 
-.demo-action a {
+.graph-action a {
   color: var(--tier-cold);
 }
 
-.demo-seed {
+.graph-seed {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2480,7 +2536,7 @@ code,
   font-size: 13px;
 }
 
-.demo-seed-btn {
+.graph-seed-btn {
   padding: 8px 14px;
   border: 0;
   border-radius: 6px;
@@ -2490,24 +2546,44 @@ code,
   cursor: pointer;
 }
 
-.demo-seed-btn:disabled {
+.graph-seed-btn:disabled {
   opacity: 0.6;
   cursor: wait;
 }
 
-.demo-seed-err {
+.graph-seed-err {
   color: var(--bad);
   font-size: 12px;
 }
 
-.demo-controls {
+.console-mode-hint {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.console-mode-hint strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.console-controls {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
   gap: 14px;
   align-items: start;
 }
 
-.demo-upload {
+.console-controls-secondary {
+  margin-top: 14px;
+}
+
+.wallet-upload {
   grid-column: 1 / -1;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2515,14 +2591,67 @@ code,
   padding: 14px 16px;
 }
 
-.demo-upload-lead {
+.wallet-upload-lead {
   margin: 0 0 12px;
   font-size: 13px;
   line-height: 1.45;
   color: var(--text-2);
 }
 
-.demo-upload-drop {
+.wallet-upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+
+.wallet-upload-section-label {
+  margin: 0 0 8px;
+  width: 100%;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wallet-upload-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-strong);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.wallet-upload-link-input {
+  flex: 1 1 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0c0c0c;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.wallet-upload-link-input:focus {
+  outline: 2px solid rgba(255, 90, 0, 0.45);
+  outline-offset: 1px;
+}
+
+.wallet-upload-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+
+.wallet-upload-btn-secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wallet-upload-drop {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2534,16 +2663,16 @@ code,
   transition: border-color 0.15s, background 0.15s;
 }
 
-.demo-upload-drop-active {
+.wallet-upload-drop-active {
   border-color: var(--accent);
   background: rgba(255, 90, 0, 0.06);
 }
 
-.demo-upload-input {
+.wallet-upload-input {
   display: none;
 }
 
-.demo-upload-btn {
+.wallet-upload-btn {
   padding: 8px 14px;
   border: 0;
   border-radius: 6px;
@@ -2553,17 +2682,17 @@ code,
   cursor: pointer;
 }
 
-.demo-upload-btn:disabled {
+.wallet-upload-btn:disabled {
   opacity: 0.6;
   cursor: wait;
 }
 
-.demo-upload-hint {
+.wallet-upload-hint {
   font-size: 11px;
   color: var(--muted);
 }
 
-.demo-upload-caption {
+.wallet-upload-caption {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2572,7 +2701,7 @@ code,
   color: var(--muted);
 }
 
-.demo-upload-caption input {
+.wallet-upload-caption input {
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -2581,23 +2710,149 @@ code,
   font-size: 13px;
 }
 
-.demo-upload-ok {
+.upload-quote {
+  margin: 14px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 90, 0, 0.25);
+  background: rgba(255, 90, 0, 0.04);
+}
+.upload-quote-loading,
+.upload-quote-idle {
+  border-style: dashed;
+  color: var(--muted);
+}
+.upload-quote-idle-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.upload-quote-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.upload-quote-file {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.upload-quote-tag {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: normal;
+}
+.upload-quote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+.upload-quote-grid dt {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.upload-quote-grid dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.upload-quote-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+.upload-quote-total dt,
+.upload-quote-total dd {
+  color: var(--accent);
+}
+.upload-quote-note {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.wallet-upload-confirm-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.wallet-upload-btn-primary {
+  background: var(--accent);
+  color: #000;
+  font-weight: 700;
+}
+.wallet-upload-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.wallet-upload-btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.wallet-upload-ok {
   margin: 10px 0 0;
   font-size: 12px;
   color: var(--tier-cold);
 }
 
-.demo-upload-ok a {
+.wallet-upload-ok a {
   color: var(--tier-cold);
 }
 
-.demo-upload-err {
+.wallet-upload-entity {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.wallet-upload-inspect-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--tier-cold);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.wallet-upload-ok-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.inspector-entity-type {
+  margin-bottom: 4px;
+}
+
+.inspector-type-hint {
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.inspector-text {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wallet-upload-err {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--bad);
 }
 
-.demo-upload-blockers {
+.wallet-upload-blockers {
   margin: 0 0 12px;
   padding-left: 18px;
   font-size: 12px;
@@ -2605,7 +2860,7 @@ code,
   color: var(--bad);
 }
 
-.demo-upload-status {
+.wallet-upload-status {
   margin: 10px 0 0;
   font-size: 12px;
   color: var(--muted);
@@ -2685,12 +2940,16 @@ code,
 }
 
 @media (max-width: 900px) {
-  .demo-controls {
+  .console-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .wallet-upload-grid {
     grid-template-columns: 1fr;
   }
 }
 
-.demo-controls .cw {
+.console-controls .cw {
   margin: 0;
 }
 
@@ -2703,14 +2962,14 @@ code,
   letter-spacing: 0.06em;
 }
 
-.demo-install {
+.plugin-install {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px;
 }
 
-.demo-install-head {
+.plugin-install-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2718,14 +2977,14 @@ code,
   margin-bottom: 8px;
 }
 
-.demo-install-title {
+.plugin-install-title {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
 }
 
-.demo-install-copy {
+.plugin-install-copy {
   font-size: 11px;
   color: var(--muted);
   background: transparent;
@@ -2735,11 +2994,11 @@ code,
   cursor: pointer;
 }
 
-.demo-install-copy:hover {
+.plugin-install-copy:hover {
   color: var(--text);
 }
 
-.demo-install-body {
+.plugin-install-body {
   margin: 0;
   padding: 12px;
   border-radius: var(--radius-sm);
@@ -2751,13 +3010,13 @@ code,
   white-space: pre-wrap;
 }
 
-.demo-install-hint {
+.plugin-install-hint {
   margin: 10px 0 0;
   font-size: 12px;
   line-height: 1.45;
 }
 
-.demo-dev-link {
+.mode-link {
   font-size: 12px;
   color: var(--text-2);
   text-decoration: none;
@@ -2766,7 +3025,7 @@ code,
   border: 1px solid transparent;
 }
 
-.demo-dev-link:hover {
+.mode-link:hover {
   border-color: var(--border);
   background: var(--surface);
 }

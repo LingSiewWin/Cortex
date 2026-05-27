@@ -147,7 +147,12 @@ export function formatBragaError(error: unknown): string {
     return "Transaction rejected in wallet.";
   }
   if (/insufficient|funds|balance|GLM/i.test(combined)) {
-    return `${combined} Fund Braga: ${BRAGA.faucet}`;
+    return (
+      `${combined} ` +
+      `On Braga, GLM is the native gas coin (not an ERC-20 token list entry). ` +
+      `In MetaMask, switch to the Braga network (chain ${BRAGA.chainId}) — your L3/explorer balance is only spendable there. ` +
+      `Fund: ${BRAGA.faucet}`
+    );
   }
   return combined || "Braga transaction failed — switch to Braga testnet and retry.";
 }

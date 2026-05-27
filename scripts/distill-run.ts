@@ -9,14 +9,14 @@
  *
  * The single-session autonomous loop can't trigger semantic promotion (it needs
  * ≥3 distinct sessions by design — semantic = cross-session consolidation). This
- * script supplies those sessions, demonstrating the tier the loop wires up.
+ * script supplies those sessions, exercising the tier the loop wires up.
  *
  * The LLM distillation step uses a real Anthropic call when ANTHROPIC_API_KEY is
  * set; otherwise it falls back to an offline deterministic synthesizer (same
- * pattern as demo-flow's synthetic-embedding fallback) so the ON-CHAIN mechanism
+ * pattern as cite-flow's synthetic-embedding fallback) so the ON-CHAIN mechanism
  * — threshold → RULE entity → ownership transfer — is provable without the key.
  *
- * Run:  bun run distill-demo
+ * Run:  bun run distill-run
  */
 
 import { embedAndQuantize } from "../src/compression/embeddings";
@@ -38,7 +38,7 @@ function explorerTx(h: string): string {
 }
 
 async function main(): Promise<void> {
-  console.log("\n=== Cortex distill-demo (RULE tier, real Braga) ===\n");
+  console.log("\n=== Cortex distill-run (RULE tier, real Braga) ===\n");
   await initMirrorDb();
   const userEOA = getUserPrimaryEOA();
 
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     attributes: [
       { key: "entityType", value: ENTITY_TYPE.OBSERVATION },
       { key: "marker", value: "rug-policy" },
-      { key: "distillDemo", value: Date.now() },
+      { key: "distillRun", value: Date.now() },
     ],
     expiresInSeconds: ExpirationTime.fromMinutes(60),
   });
@@ -128,6 +128,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("distill-demo failed:", err);
+  console.error("distill-run failed:", err);
   process.exit(1);
 });

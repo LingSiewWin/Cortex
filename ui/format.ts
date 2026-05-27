@@ -36,7 +36,7 @@ export function formatGlm(weiString: string): string {
   if (wei === 0n) return "0 GLM";
   const whole = wei / 1_000_000_000_000_000_000n;
   const frac = wei % 1_000_000_000_000_000_000n;
-  // Show 4 decimals max — enough resolution for micro-tx demos.
+  // Show 4 decimals max — enough resolution for micro-tx amounts.
   const fracStr = frac.toString().padStart(18, "0").slice(0, 4);
   const trimmedFrac = fracStr.replace(/0+$/, "");
   return trimmedFrac.length > 0

@@ -5,7 +5,7 @@
  * process. Resolved from .env on first read (source: "env"), or replaced by
  * the browser's "Connect Wallet" flow (source: "browser") via adopt().
  *
- * Single-user demo scope — the singleton is global to the process. Multi-tenant
+ * Single-user judge scope — the singleton is global to the process. Multi-tenant
  * (per-SIWE-cookie identity) is out-of-scope for this iteration.
  */
 

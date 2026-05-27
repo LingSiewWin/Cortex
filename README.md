@@ -8,6 +8,7 @@
 |---|------|
 | **Deploy (Vercel)** | https://cortex-arkiv.vercel.app |
 | **Console** | https://cortex-arkiv.vercel.app/console |
+| **Video walkthrough** | https://www.loom.com/share/68178caad4034e8282ac412a440e0738 |
 | **Source** | https://github.com/LingSiewWin/Cortex |
 | **Chain** | [Arkiv Braga testnet](https://explorer.braga.hoodi.arkiv.network/) · chainId `60138453102` |
 
@@ -17,7 +18,7 @@
 |-----|---------|
 | **[docs/submission/SUBMISSION.md](./docs/submission/SUBMISSION.md)** | Theme, links, elevator pitch, entity types |
 | **[docs/submission/JUDGES.md](./docs/submission/JUDGES.md)** | 5-minute code tour + repo map |
-| **[docs/submission/pitch.md](./docs/submission/pitch.md)** | 3-minute demo script |
+| **[docs/submission/pitch.md](./docs/submission/pitch.md)** | 3-minute judge script |
 | **[docs/submission/JUDGE_DEFENSE.md](./docs/submission/JUDGE_DEFENSE.md)** | Q&A (ERC skips, market honesty, vs MemGPT) |
 
 One repo — not a monorepo. `app/` + `src/` + `cortex-plugin/` ship together.
@@ -68,7 +69,7 @@ bun run dev             # http://localhost:3000  →  /console
 | `bun run mcp` | Cortex MCP server (stdio) |
 | `bun run build:plugin` | Bundle Claude Code plugin to `cortex-plugin/dist/` |
 
-See **[scripts/README.md](./scripts/README.md)** for the full script list (demos & eval are optional).
+See **[scripts/README.md](./scripts/README.md)** for the full script list (Braga scripts & eval are optional).
 
 > Run **`seed` before** starting the loop — seed and the autonomous agent share one session-key EOA; parallel writes collide on nonce.
 
@@ -91,9 +92,7 @@ See **[scripts/README.md](./scripts/README.md)** for the full script list (demos
 
 ## Architecture
 
-High-level flows on Arkiv Braga — straight-line `sequenceDiagram`s (renders on GitHub or [mermaid.live](https://mermaid.live)).
-
-### End-to-end
+End-to-end on Arkiv Braga (renders on GitHub or [mermaid.live](https://mermaid.live)).
 
 ```mermaid
 sequenceDiagram
@@ -132,67 +131,6 @@ sequenceDiagram
   Note over Chain: Uncited memories evict via L1Block
 ```
 
-### Store a memory (browser wallet)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant UI as Browser console
-  participant API as store-file prepare
-  participant OR as OpenRouter or Cohere
-  participant Wallet as MetaMask on Braga
-  participant Chain as Arkiv Braga
-
-  UI->>API: file and optional caption
-  API->>API: descriptor filename mime sha256
-  API->>OR: embedText descriptor
-  alt missing embedding API key
-    OR-->>API: 401 embed error
-    Note over Chain: Never reached no GLM spent
-  else key present
-    OR-->>API: 1536-d vector
-    API-->>UI: prepared payload and RaBitQ metadata
-    UI->>Wallet: sign key derivation
-    UI->>UI: seal ciphertext wallet key
-    Wallet->>Chain: mutateEntities on Braga
-    Chain-->>UI: txHash entityKey 1h lease
-  end
-```
-
-### Recall cite extend (Darwinian loop)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant UI as Browser console
-  participant API as citation manual API
-  participant Loop as Session key loop
-  participant Engine as recall and act
-  participant Mirror as SQLite mirror
-  participant Chain as Arkiv Braga
-  participant SSE as SSE stream
-
-  alt manual cite from console
-    UI->>API: query string
-    API->>Engine: runCiteCycle
-  else autonomous loop
-    Loop->>Engine: runCiteCycle
-  end
-
-  Engine->>Mirror: RaBitQ distance and attributes
-  Engine->>Chain: query live entities
-  Engine-->>SSE: recall.completed
-
-  alt no hits
-    Note over Chain: skip act nothing to extend
-  else citations present
-    Engine->>Chain: extendEntity remaining plus 24h
-    Engine->>Chain: anchor decision MMR root
-    Engine-->>Mirror: outbox and tier counters
-    Engine-->>SSE: memory.cited and arkiv.rpc
-  end
-```
-
 **Ownership:** `$creator` = session key (attribution); `$owner` = your wallet (extend/update/delete). Reads filter by creator + `project=cortex-ethns-2026`.
 
 **Tiers:** working (1h) → episodic (≥2 cites, +7d) → semantic (≥5 cites · 3 sessions, 1y rule).
@@ -228,9 +166,9 @@ sequenceDiagram
 | `src/mcp/` | MCP server for agent tooling |
 | `src/obsidian/` | Vault → mirror sync |
 | `cortex-plugin/` | Claude Code plugin (hooks, MCP, skills) |
-| `scripts/` | seed, demo-flow, sovereignty-proof, plugin build |
+| `scripts/` | seed, cite-flow, sovereignty-proof, plugin build |
 | `tests/` | Offline + smoke/canary against Braga |
-| `contracts/` | `CortexRegistry.sol`, `SynapticMarket.sol` |
+| `contracts/` | `CortexRegistry.sol` (+ `SynapticMarket.sol` deferred — no escrow on Braga) |
 
 ---
 

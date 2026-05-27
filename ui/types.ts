@@ -79,6 +79,8 @@ export interface MemoryDetailResponse {
   summary: MemorySummary;
   attributes: { key: string; value: string | number }[];
   payloadPreview: string | null;
+  /** Decrypted body when the server can open the sealed payload (documents, text uploads). */
+  text?: string | null;
 }
 
 export interface WalletCapsView {

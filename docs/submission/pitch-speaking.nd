@@ -1,0 +1,29 @@
+Right now, most agent memory is centralized. Your Claude Code session, your reasoning idea, your notes in someone else's cloud — you don't fully own them. You co-own them with the platform. And we all know what happens when privacy is an afterthought.
+
+As an AI x web3 builder, I often face the issue about a trilemma: sovereignty, memory, and cost. It is either store everything forever and you bleed money. Keep it cheap in a vendor database and you don't own it. Put it on-chain raw and it's slow and expensive.
+
+I built Cortex — an AI memory layer on Arkiv that pushes on all three. Own by your wallet. Arkiv actually have the mechanism that makes memory fade like human. What you ignore fades, what you cite stays.
+Memories that behave like human memory. Also I've introduce RaBitQ algorithm to help in compresses embeddings to make memory store onchain practical,it is about thirty-one times of the orginal size.
+
+
+[CONSOLE]
+
+Let's enter the console. Each dot is a memory — brighter means more expiration left.
+
+This is sovereignty you can see. I upload a real README. Before MetaMask I see estimated size and cost — that's the cost corner of the trilemma, upfront. The full note is sealed with my wallet, written to Braga. This hash is the receipt.
+
+---
+
+Same engine you just watched — drop sovereign, decay-aware memory into your stack. Integrate Cortex: MCP server for Claude Desktop, Cursor, Cline. One line — npx at-cortex-network slash mcp-server with your wallet — or bun run mcp from this repo. OpenClaw plugin too. Three tools: cortex recall, cortex act, cortex store document.
+
+---
+
+RaBitQ Encoder — paste any sentence, hit Encode, you see the compression that makes on-chain memory practical. Recall Playground — ask the memory store anything; that's the same ranking your agent uses. Proof playground — paste the entity key from your upload, Fetch proof — MMR inclusion path, verified in the browser. Compress, recall, prove. That's the product surface, not a slide deck.
+
+---
+
+Day to day: Obsidian or your vault syncs to Arkiv; install the Cortex plugin in Claude Code. Before a decision, recall. After, act with the IDs you actually used — that triggers extend. RaBitQ keeps embeddings small; decay keeps the bill honest. Sovereignty, memory, and cost — not pick two.
+
+---
+
+Agents shouldn't rent their past from a platform that can reset it tomorrow. Cortex is wallet-owned memory on Arkiv. That's the trilemma solved in one layer. Thank you.

@@ -10,7 +10,7 @@
  *   - `$creator` is the session-key relayer (env, paid by us)
  *   - `$owner` flows to the singleton's ownerAddress via the existing batch-writer path
  *
- * Net effect: after adoption, calling `seedDemoMemories()` writes 20 observations
+ * Net effect: after adoption, calling `seedMemories()` writes 20 observations
  * sealed with the connected wallet's key, ready for the autonomous loop to cite.
  */
 
@@ -48,8 +48,8 @@ export const SEED_OBSERVATIONS: { marker: string; text: string }[] = [
     text: "The session key is the immutable creator for tamper-proof attribution, while the user's primary EOA is the mutable owner that controls extend, update, and delete.",
   },
   {
-    marker: "synaptic-market",
-    text: "The Synaptic Market lists distilled rules with a public GLM price and a sealed payload; buyers pay and the seller's relayer publishes a decryption grant entity.",
+    marker: "semantic-tier",
+    text: "Semantic tier distills episodic memories into plain-text rules with a one-year lease on Arkiv after enough cross-session citations trigger LLM consolidation.",
   },
   {
     marker: "darwinian",
@@ -112,7 +112,7 @@ export interface SeedResult {
  * Embed + seal + batch-create all SEED_OBSERVATIONS in one tx. The mirror is
  * initialized first so the daemon picks them up immediately when it next polls.
  */
-export async function seedDemoMemories(): Promise<SeedResult> {
+export async function seedMemories(): Promise<SeedResult> {
   await initMirrorDb();
 
   const creates = [];

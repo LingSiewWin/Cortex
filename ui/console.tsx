@@ -4,7 +4,7 @@
  * Phase 15: Apple-tier dark theme with thermodynamic memory metaphor
  * (orange = hot working/episodic, blue = cold rules + anchors).
  *
- * Demo mode (default): graph-first layout for judges — MemoryGraph hero,
+ * Judge mode (default): graph-first layout for judges — MemoryGraph hero,
  * compact agent bar, install strip. Dev mode (?dev=1): full diagnostics +
  * developer hub sidebar.
  *
@@ -21,9 +21,9 @@ import { DeveloperHub } from "./components/DeveloperHub";
 import { RaBitQPlayground } from "./components/RaBitQPlayground";
 import { AllowanceCard } from "./components/AllowanceCard";
 import { ProofPlayground } from "./components/ProofPlayground";
-import { DemoHero } from "./components/DemoHero";
-import { DemoInstallStrip } from "./components/DemoInstallStrip";
-import { DemoUpload } from "./components/DemoUpload";
+import { GraphHero } from "./components/GraphHero";
+import { PluginInstallStrip } from "./components/PluginInstallStrip";
+import { WalletUpload } from "./components/WalletUpload";
 import MemoryGraph from "./components/MemoryGraph/MemoryGraph";
 import { DecisionTimeline } from "./components/DecisionTimeline";
 import { DevModeToggle } from "./components/DevModeToggle";
@@ -45,7 +45,7 @@ import type {
 const REFRESH_INTERVAL_MS = 4_000;
 const MODE_STORAGE_KEY = "cortex_console_mode";
 
-type ConsoleMode = "demo" | "dev";
+type ConsoleMode = "judge" | "dev";
 
 interface EconomicsResponse {
   entityCount: number;
@@ -120,7 +120,7 @@ function formatBytes(n: number): string {
 }
 
 function readInitialMode(): ConsoleMode {
-  if (typeof window === "undefined") return "demo";
+  if (typeof window === "undefined") return "judge";
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.get("dev") === "1") return "dev";
@@ -130,11 +130,11 @@ function readInitialMode(): ConsoleMode {
   try {
     const v = window.localStorage.getItem(MODE_STORAGE_KEY);
     if (v === "dev" || v === "ambient") return "dev";
-    if (v === "demo") return "demo";
+    if (v && v !== "dev" && v !== "ambient") return "judge";
   } catch {
     /* localStorage disabled — fall through */
   }
-  return "demo";
+  return "judge";
 }
 
 function ConsoleApp() {
@@ -241,34 +241,24 @@ function ConsoleApp() {
   );
 
   return (
+    <div className="cx cx-console">
     <>
-    <div className={`app${mode === "demo" ? " app-demo" : ""}`}>
-      <div className="topbar">
+    <div className={`app${mode === "judge" ? " app-judge" : ""}`}>
+      <header className="topbar">
         <div className="brand">
-          <a href="/" className="back-link" title="Cortex landing">
-            ← Home
+          <a href="/" className="back-link mono" title="Cortex landing">
+            Home
           </a>
-          <span className="brand-dot" />
+          <span className="brand-dot" aria-hidden />
           <span>Cortex</span>
-          <span className="tag muted">Console</span>
+          <span className="tag muted mono">Console</span>
         </div>
         <div className="topbar-right">
           <AnchorPill />
-          {mode === "dev" ? (
-            <>
-              <DevModeToggle mode={mode} onToggle={onToggleMode} />
-              <a href="/console" className="demo-dev-link">
-                Demo view
-              </a>
-            </>
-          ) : (
-            <a href="/console?dev=1" className="demo-dev-link muted">
-              Developer view
-            </a>
-          )}
+          <DevModeToggle mode={mode} onToggle={onToggleMode} />
           <WalletHeader />
         </div>
-      </div>
+      </header>
 
       {data.error ? (
         <div className="card" role="alert">
@@ -276,51 +266,58 @@ function ConsoleApp() {
         </div>
       ) : null}
 
-      {mode === "demo" ? (
-        <ConnectGate>
-        <div className="console-demo">
-          <DemoHero
+      {mode === "judge" ? (
+        <div className="console-judge">
+          <GraphHero
             memoryCounts={data.memories?.counts ?? null}
             compressionRatio={data.economics?.compressionRatio ?? null}
             effectiveOwner={effectiveOwner}
             memoryCount={data.memories?.counts.total ?? null}
-            onSeeded={() => {
-              void loadAll(effectiveOwner).then(setData);
-            }}
           />
 
-          <section className="demo-controls" aria-label="Agent controls">
-            <DemoUpload
+          <ConnectGate
+            title="Connect wallet to store on Braga"
+            lead="Upload seals with your wallet key; you approve one Arkiv transaction and pay GLM gas. The server only embeds text — it never holds your signing key."
+          >
+            <section className="console-controls" aria-label="Store on Arkiv">
+              <WalletUpload
+                onStored={() => {
+                  void loadAll(effectiveOwner).then(setData);
+                }}
+              />
+            </section>
+          </ConnectGate>
+
+          <section className="console-controls console-controls-secondary" aria-label="Agent activity">
+            <CitationWidget variant="compact" />
+            <PluginInstallStrip />
+          </section>
+        </div>
+      ) : (
+        <>
+      <div className="two-pane">
+        <section className="pane pane-live" aria-label="Live Darwinian engine">
+
+      {mode === "dev" ? (
+        <ConnectGate
+          title="Connect wallet to store on Braga"
+          lead="Same browser upload as judge: your wallet signs the create; GLM pays gas on Braga testnet."
+        >
+          <div className="section">
+            <div className="section-title">Store a file (wallet-signed)</div>
+            <div className="section-hint">
+              Text seals in full; images store sha256 + caption for recall. Requires a valid
+              embedding key in server <code>.env</code>.
+            </div>
+            <WalletUpload
               onStored={() => {
                 void loadAll(effectiveOwner).then(setData);
               }}
+              onInspectKey={(key) => void inspect(key)}
             />
-            <CitationWidget variant="compact" />
-            <DemoInstallStrip />
-          </section>
-        </div>
+          </div>
         </ConnectGate>
-      ) : (
-        <>
-      {mode === "dev" ? (
-        <div className="dev-banner mono">
-          Developer view — full diagnostics.{" "}
-          <a href="/console">Return to demo layout</a>
-        </div>
       ) : null}
-
-      {mode === "dev" ? (
-        <SeedBanner
-          effectiveOwner={effectiveOwner}
-          memoryCount={data.memories?.counts.total ?? null}
-          onSeeded={() => {
-            void loadAll(effectiveOwner).then(setData);
-          }}
-        />
-      ) : null}
-
-      <div className="two-pane">
-        <section className="pane pane-live" aria-label="Live Darwinian engine">
 
       <CitationWidget />
 
@@ -331,7 +328,7 @@ function ConsoleApp() {
           memories, brightness is remaining lease. Cite one and its cluster
           pulses; let one decay and it cools and drops.
         </div>
-        <MemoryGraph />
+        <MemoryGraph surface="light" />
       </div>
 
       <div className="spine-grid">
@@ -517,6 +514,25 @@ function ConsoleApp() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3>Memory inspector</h3>
+            {inspected.summary.entityType ? (
+              <div className="row inspector-entity-type">
+                <span className="k">type</span>
+                <span>
+                  <strong className="mono">{inspected.summary.entityType}</strong>
+                  {inspected.summary.entityType === "document" ? (
+                    <span className="inspector-type-hint">
+                      {" "}
+                      — wallet upload (full text for .md/.txt; images are hash + caption only)
+                    </span>
+                  ) : inspected.summary.entityType === "observation" ? (
+                    <span className="inspector-type-hint">
+                      {" "}
+                      — agent fingerprint (~198 B RaBitQ), not a file upload
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+            ) : null}
             <div className="row">
               <span className="k">key</span>
               <span className="mono">{inspected.summary.entityKey}</span>
@@ -557,10 +573,15 @@ function ConsoleApp() {
                 ))}
               </span>
             </div>
-            {inspected.payloadPreview ? (
+            {inspected.text ? (
+              <div className="row inspector-readable">
+                <span className="k">memory</span>
+                <pre className="inspector-text">{inspected.text}</pre>
+              </div>
+            ) : inspected.payloadPreview ? (
               <div className="row">
                 <span className="k">payload</span>
-                <span className="mono" style={{ wordBreak: "break-all" }}>
+                <span className="mono inspector-preview">
                   {inspected.payloadPreview}
                 </span>
               </div>
@@ -582,104 +603,6 @@ function ConsoleApp() {
     </div>
     <CortexFooter />
     </>
-  );
-}
-
-interface SeedBannerProps {
-  effectiveOwner: Hex | null;
-  memoryCount: number | null;
-  onSeeded: () => void;
-}
-
-/**
- * "Your wallet has no memories yet — seed 20 to wake the loop" banner.
- *
- * Only renders when an adopted wallet (effectiveOwner != null) currently owns
- * zero Cortex memories. After a successful seed, the parent re-fetches and the
- * banner self-dismisses (memoryCount > 0).
- */
-function SeedBanner({ effectiveOwner, memoryCount, onSeeded }: SeedBannerProps) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [seededTx, setSeededTx] = useState<string | null>(null);
-
-  if (!effectiveOwner) return null;
-  if (memoryCount === null) return null;
-  if (memoryCount > 0 && !seededTx) return null;
-
-  async function seed() {
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await fetch("/api/seed-memories", { method: "POST" });
-      if (!res.ok) {
-        throw new Error(await res.text());
-      }
-      const body = (await res.json()) as { txHash: string; count: number };
-      setSeededTx(body.txHash);
-      onSeeded();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      className="card"
-      style={{
-        margin: "12px 0",
-        padding: 16,
-        border: "1px solid var(--accent-orange, #FF5A00)",
-        background: "rgba(255, 90, 0, 0.06)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 320px" }}>
-          <strong>This wallet has no memories yet.</strong>{" "}
-          <span style={{ color: "var(--muted)" }}>
-            Seed 20 starter observations under your address so the autonomous
-            loop has something to recall + cite. Single Arkiv tx; the loop
-            picks them up within ~20s.
-          </span>
-        </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={seed}
-          style={{
-            padding: "10px 18px",
-            background: "var(--accent-orange, #FF5A00)",
-            color: "#000",
-            border: 0,
-            borderRadius: 6,
-            fontWeight: 600,
-            cursor: busy ? "wait" : "pointer",
-            minWidth: 160,
-          }}
-        >
-          {busy ? "Seeding…" : "Seed memories"}
-        </button>
-      </div>
-      {err ? (
-        <div style={{ marginTop: 10, color: "var(--accent-red, #ff5050)" }}>
-          {err}
-        </div>
-      ) : null}
-      {seededTx ? (
-        <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
-          ✓ tx{" "}
-          <a
-            href={`https://explorer.braga.hoodi.arkiv.network/tx/${seededTx}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mono"
-          >
-            {seededTx.slice(0, 18)}…
-          </a>
-        </div>
-      ) : null}
     </div>
   );
 }

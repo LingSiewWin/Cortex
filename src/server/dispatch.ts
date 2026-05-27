@@ -21,6 +21,7 @@ import { handleManualCitation } from "../api/citation";
 import { handleAdoptRequest, handleAuthMe } from "../api/auth-adopt";
 import { handleSeedRequest } from "../api/seed";
 import { handleStoreFileRequest, handleStoreFilePrepareRequest } from "../api/store-file";
+import { handleMemoryRegisterRequest } from "../api/memory-register";
 import { handleLoopStatus, handleLoopControl } from "../agent/loop-singleton";
 import {
   handleHealth,
@@ -46,6 +47,7 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/health": handleHealth,
   "/api/memories": handleMemoriesRequest,
   "/api/memories/detail": handleMemoryDetailRequest,
+  "/api/memories/register": { POST: handleMemoryRegisterRequest },
   "/api/decisions": handleDecisionsRequest,
   "/api/listings": handleListingsRequest,
   "/api/economics": handleEconomicsRequest,

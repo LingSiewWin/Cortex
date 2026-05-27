@@ -25,28 +25,40 @@ export function useCortexIdentity() {
   const [error, setError] = useState<string | null>(null);
   const adoptFor = useRef<string | null>(null);
 
+  const refreshServerAuth = useCallback(async () => {
+    const r = await fetch("/api/auth/me");
+    if (!r.ok) return;
+    const me = (await r.json()) as {
+      uploadBlockers?: string[];
+      source?: string;
+      ownerAddress?: Hex | null;
+    };
+    setUploadBlockers(me.uploadBlockers ?? []);
+    if (me.source === "browser") setAdopted(true);
+    if (
+      address &&
+      me.ownerAddress &&
+      me.ownerAddress.toLowerCase() === address.toLowerCase() &&
+      me.source === "browser"
+    ) {
+      adoptFor.current = address.toLowerCase();
+    }
+  }, [address]);
+
   useEffect(() => {
     let alive = true;
-    (async () => {
+    void (async () => {
       try {
-        const r = await fetch("/api/auth/me");
-        if (!r.ok) return;
-        const me = (await r.json()) as {
-          uploadBlockers?: string[];
-          uploadReady?: boolean;
-          source?: string;
-        };
-        if (!alive) return;
-        setUploadBlockers(me.uploadBlockers ?? []);
-        if (me.source === "browser") setAdopted(true);
+        await refreshServerAuth();
       } catch {
         /* offline */
       }
+      if (!alive) return;
     })();
     return () => {
       alive = false;
     };
-  }, [address, adopted]);
+  }, [address, refreshServerAuth]);
 
   const ensureBraga = useCallback(async () => {
     try {
@@ -78,7 +90,7 @@ export function useCortexIdentity() {
       adoptFor.current = address.toLowerCase();
       setPayloadKey(key);
       setAdopted(true);
-      setUploadBlockers([]);
+      await refreshServerAuth();
       return key;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -87,7 +99,7 @@ export function useCortexIdentity() {
     } finally {
       setBusy(false);
     }
-  }, [address, ensureBraga, payloadKey, signMessageAsync]);
+  }, [address, ensureBraga, payloadKey, refreshServerAuth, signMessageAsync]);
 
   const uploadReady =
     isConnected &&

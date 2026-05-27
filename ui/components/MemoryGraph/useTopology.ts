@@ -18,6 +18,7 @@ import { EMPTY_GRAPH, type TopologyGraph } from "./types";
 
 const TOPOLOGY_URL = "/api/topology";
 const REFETCH_DEBOUNCE_MS = 1500;
+const REFETCH_DEBOUNCE_CREATED_MS = 400;
 /** Events that change graph *structure* (warrant a recompute + refetch). */
 const STRUCTURAL_EVENTS = [
   "memory.created",
@@ -92,14 +93,20 @@ export function useTopology(): UseTopologyResult {
   // Debounced refetch on the trailing edge of a burst of structural events.
   useEffect(() => {
     if (structural.length === 0) return;
-    const newestId = structural[structural.length - 1]?.id ?? null;
+    const newest = structural[structural.length - 1];
+    const newestId = newest?.id ?? null;
     if (newestId === lastSeenId.current) return; // no NEW structural event
     lastSeenId.current = newestId;
+
+    const delay =
+      newest?.event.type === "memory.created"
+        ? REFETCH_DEBOUNCE_CREATED_MS
+        : REFETCH_DEBOUNCE_MS;
 
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
       fetchGraph.current();
-    }, REFETCH_DEBOUNCE_MS);
+    }, delay);
   }, [structural]);
 
   return { graph, loading, error };

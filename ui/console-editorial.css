@@ -1,0 +1,722 @@
+/* ===========================================================================
+ *  Cortex console — editorial surface (matches landing `.cx` theme)
+ *
+ *  Scoped under `.cx-console` so the legacy dark cockpit tokens in styles.css
+ *  stay available for other entry points. Import after styles.css + landing-editorial.css.
+ * =========================================================================== */
+
+.cx-console {
+  --paper: #fcfcfc;
+  --ink: #111111;
+  --ember: #ff5a00;
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --bg: var(--paper);
+  --surface: #ffffff;
+  --surface-2: #f6f6f8;
+  --surface-3: #f1f1f3;
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.16);
+  --text: var(--ink);
+  --text-2: #333333;
+  --muted: #777777;
+  --accent: var(--ember);
+  --accent-soft: rgba(255, 90, 0, 0.1);
+  --shadow: none;
+  --radius: 0;
+  --radius-sm: 0;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display);
+  min-height: 100vh;
+}
+
+html:has(.cx-console),
+body:has(.cx-console) {
+  background: #fcfcfc;
+}
+
+.cx-console .mono {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 11px;
+}
+
+/* ---------- Top bar (landing-adjacent) ---------- */
+.cx-console .topbar {
+  padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 48px) 20px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cx-console .topbar .brand {
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.cx-console .topbar .brand .back-link {
+  color: #999;
+}
+
+.cx-console .topbar .brand .tag {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 0;
+  padding: 4px 8px;
+}
+
+.cx-console .console-mode-hint,
+.cx-console .cx-console-band {
+  margin: 0 clamp(16px, 4vw, 48px) 24px;
+  padding: 14px 18px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 0;
+  background: var(--surface);
+  color: #444;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  line-height: 1.55;
+  box-shadow: none;
+}
+
+.cx-console .console-mode-hint strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.cx-console .app {
+  padding: 0 clamp(16px, 4vw, 48px) 80px;
+  max-width: min(1320px, 100%);
+}
+
+/* ---------- Editorial panels (cx-tri grid language) ---------- */
+.cx-console .card,
+.cx-console .devhub,
+.cx-console .cw,
+.cx-console .wallet-upload,
+.cx-console .plugin-install,
+.cx-console .stat-card,
+.cx-console .connect-gate {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.cx-console .section-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #999;
+  text-transform: uppercase;
+}
+
+.cx-console .section-title::before {
+  background: var(--ember);
+}
+
+.cx-console .section-hint {
+  color: var(--muted);
+}
+
+/* Trilemma / economics row — same as landing [04] */
+.cx-console .trilemma-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  margin-bottom: 32px;
+}
+
+.cx-console .trilemma-tile {
+  background: var(--paper);
+  padding: 32px 28px;
+  border: none;
+  border-radius: 0;
+}
+
+.cx-console .trilemma-tile .label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #777;
+  margin-bottom: 12px;
+}
+
+.cx-console .trilemma-tile .value {
+  font-family: var(--font-mono);
+  font-size: clamp(1.5rem, 2.5vw, 2.2rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.cx-console .trilemma-tile .sub {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .cx-console .trilemma-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Graph hero + graph on paper (landing cx-tri stats) ---------- */
+.cx-console .graph-hero {
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 0;
+  background: #f4f4f6;
+  overflow: hidden;
+}
+
+.cx-console .memory-graph {
+  background: #f4f4f6;
+  border-radius: 0;
+}
+
+.cx-console .graph-overlay-top.graph-overlay--editorial {
+  background: transparent;
+  padding: 20px clamp(16px, 3vw, 28px) 0;
+}
+
+.cx-console .graph-hero-stats {
+  max-width: min(820px, 100%);
+  pointer-events: auto;
+}
+
+/* Kill legacy dark glass stat chips if any remain */
+.cx-console .graph-stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 0;
+  max-width: min(820px, 100%);
+}
+
+.cx-console .graph-stat {
+  border-radius: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--paper);
+  border: none;
+  padding: 0;
+  min-width: 0;
+}
+
+.cx-console .graph-overlay-bottom {
+  background: linear-gradient(
+    to top,
+    rgba(252, 252, 252, 0.96) 0%,
+    transparent 100%
+  );
+  padding-bottom: 44px;
+}
+
+.cx-console .graph-legend {
+  color: #666;
+  background: linear-gradient(0deg, rgba(252, 252, 252, 0.95) 0%, transparent 100%);
+  border-radius: 0;
+}
+
+.cx-console .graph-action,
+.cx-console .graph-action-idle {
+  color: #333;
+  border-radius: 0;
+  background: var(--surface);
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.cx-console .graph-action-idle {
+  border-color: rgba(17, 17, 17, 0.1);
+  color: #555;
+}
+
+.cx-console .graph-action-label {
+  color: var(--ember);
+}
+
+.cx-console .memory-graph-msg {
+  color: #444;
+}
+
+.cx-console .memory-graph-sub {
+  color: #888;
+}
+
+/* ---------- Citation widget ---------- */
+.cx-console .cw-thought {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.cx-console .cw-thought-query {
+  color: var(--ink);
+}
+
+.cx-console .cw-phase {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.cx-console .cw-phase-active {
+  border-color: var(--ember);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.cx-console .cw-input {
+  border-radius: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cx-console .cw-cite {
+  border-radius: 0;
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.cx-console .cw-cite:hover:not(:disabled) {
+  background: #333;
+}
+
+/* ---------- Buttons (flat editorial, not pills) ---------- */
+.cx-console button {
+  border-radius: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cx-console button.primary,
+.cx-console .wallet-upload-btn-primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.cx-console button.primary:hover {
+  filter: none;
+  background: #333;
+}
+
+.cx-console a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cx-console .mode-link {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.cx-console .mode-link:hover {
+  color: var(--ink);
+}
+
+/* ---------- Developer hub terminal on paper ---------- */
+.cx-console .terminal {
+  background: #f1f1f3;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 0;
+}
+
+.cx-console .terminal-bar {
+  background: #eaeaec;
+  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.cx-console .terminal-body {
+  color: #1a1a1a;
+}
+
+.cx-console .devhub-tab.active {
+  border-color: var(--ink);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.cx-console .devhub-tool-sig {
+  color: var(--ember);
+}
+
+/* ---------- Two-pane layout ---------- */
+.cx-console .two-pane {
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+}
+
+.cx-console .pane-live,
+.cx-console .pane-dev .devhub {
+  background: var(--paper);
+}
+
+.cx-console .pane-dev {
+  top: 24px;
+}
+
+/* ---------- Modals ---------- */
+.cx-console .modal-backdrop {
+  background: rgba(252, 252, 252, 0.72);
+}
+
+.cx-console .modal {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  color: var(--ink);
+}
+
+/* ---------- Upload / install strips ---------- */
+.cx-console .wallet-upload-drop {
+  border-radius: 0;
+  border-style: solid;
+  background: var(--surface-2);
+}
+
+.cx-console .plugin-install-body,
+.cx-console .install-block {
+  background: #f1f1f3;
+  color: #1a1a1a;
+  border-radius: 0;
+}
+
+.cx-console .wallet-header-btn,
+.cx-console .wallet-header-pill {
+  border-radius: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cx-console .tag {
+  border-radius: 0;
+}
+
+.cx-console .tag.muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+/* Footer is self-contained (.cxf) — never inherit console button chrome */
+.cx-console .cxf button {
+  all: unset;
+  cursor: pointer;
+}
+
+/* ===========================================================================
+ *  Editorial grid panels — landing [04] clean-cut boxes (1px hairlines, square)
+ * =========================================================================== */
+
+.cx-console .cx-panel-grid {
+  display: grid;
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+}
+
+.cx-console .cx-panel-cell {
+  background: var(--paper);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ---------- Console controls (upload + cite side-by-side) ---------- */
+.cx-console .console-controls {
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr);
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  align-items: stretch;
+}
+
+.cx-console .console-controls > * {
+  background: var(--paper);
+  min-width: 0;
+  padding: 0;
+}
+
+.cx-console .console-controls .wallet-upload,
+.cx-console .console-controls .cw {
+  border: none;
+  border-radius: 0;
+  margin: 0;
+}
+
+.cx-console .console-controls-secondary {
+  margin-top: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+}
+
+.cx-console .console-controls-secondary > .plugin-install {
+  border: none;
+}
+
+/* ---------- Store file panel ---------- */
+.cx-console .wallet-upload {
+  padding: 24px 28px;
+}
+
+.cx-console .wallet-upload-lead {
+  color: #444;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+
+.cx-console .wallet-upload-grid {
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  margin-bottom: 16px;
+}
+
+.cx-console .wallet-upload-drop,
+.cx-console .wallet-upload-link {
+  border: none;
+  border-radius: 0;
+  background: var(--surface);
+  padding: 20px 22px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cx-console .wallet-upload-drop-active {
+  background: var(--surface-2);
+  outline: 1px solid var(--ink);
+  outline-offset: -1px;
+}
+
+.cx-console .wallet-upload-section-label {
+  letter-spacing: 0.18em;
+  color: #777;
+}
+
+.cx-console .wallet-upload-link-input,
+.cx-console .wallet-upload-caption input {
+  width: 100%;
+  border-radius: 0;
+  border: 1px solid rgba(17, 17, 17, 0.14);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.cx-console .wallet-upload-link-input:focus,
+.cx-console .wallet-upload-caption input:focus {
+  outline: 1px solid var(--ink);
+  outline-offset: 0;
+  border-color: var(--ink);
+}
+
+.cx-console .wallet-upload-btn {
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 500;
+  padding: 9px 16px;
+}
+
+.cx-console .wallet-upload-btn:hover:not(:disabled) {
+  background: #333;
+  border-color: #333;
+}
+
+.cx-console .wallet-upload-btn-secondary {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid rgba(17, 17, 17, 0.2);
+}
+
+.cx-console .wallet-upload-btn-secondary:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.cx-console .wallet-upload-btn-primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.cx-console .wallet-upload-btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid rgba(17, 17, 17, 0.16);
+}
+
+.cx-console .braga-gas-banner {
+  border-radius: 0;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.cx-console .braga-gas-banner-warn {
+  border-color: rgba(17, 17, 17, 0.22);
+  background: #faf6f0;
+}
+
+.cx-console .braga-gas-banner-alert {
+  color: #8a5a00;
+}
+
+.cx-console .upload-quote {
+  margin: 16px 0;
+  padding: 20px 22px;
+  border-radius: 0;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  background: var(--surface-2);
+}
+
+.cx-console .upload-quote-total dt,
+.cx-console .upload-quote-total dd {
+  color: var(--ink);
+}
+
+/* ---------- Spine grid (RPC · RaBitQ · MMR · budget) ---------- */
+.cx-console .spine-grid {
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  margin-bottom: 28px;
+}
+
+.cx-console .spine-grid > * {
+  background: var(--paper);
+  border: none;
+  border-radius: 0;
+  margin: 0;
+}
+
+.cx-console .rpc-ticker,
+.cx-console .rabitq-tile,
+.cx-console .mmr-panel,
+.cx-console .allowance-card {
+  border: none;
+  border-radius: 0;
+  padding: 20px 22px;
+}
+
+.cx-console .rpc-row {
+  border-radius: 0;
+  background: var(--surface-2);
+  border: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.cx-console .rpc-ticker-head,
+.cx-console .rabitq-head,
+.cx-console .mmr-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: #777;
+}
+
+/* ---------- Topbar chrome (square, not pills) ---------- */
+.cx-console .anchor-pill {
+  border-radius: 0;
+  border: 1px solid rgba(17, 17, 17, 0.14);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.cx-console .anchor-pill:hover {
+  background: var(--surface-2);
+}
+
+.cx-console .wallet-header-pill {
+  border-color: rgba(17, 17, 17, 0.2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.cx-console .devmode-toggle-track {
+  border-radius: 0;
+  border: 1px solid rgba(17, 17, 17, 0.16);
+  background: var(--surface-2);
+}
+
+.cx-console .devmode-toggle-track.on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.cx-console .devmode-toggle-knob {
+  border-radius: 0;
+}
+
+.cx-console .devmode-toggle-label {
+  color: var(--muted);
+}
+
+/* ---------- Connect gate ---------- */
+.cx-console .connect-gate-inner {
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 40px 32px;
+  box-shadow: none;
+}
+
+.cx-console .connect-gate-btn {
+  border-radius: 0;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+}
+
+/* ---------- Section cards ---------- */
+.cx-console .section .card,
+.cx-console .timeline-entry {
+  border-radius: 0;
+}
+
+.cx-console .plugin-install {
+  padding: 20px 22px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+}
+
+@media (max-width: 900px) {
+  .cx-console .console-controls,
+  .cx-console .console-controls-secondary {
+    grid-template-columns: 1fr;
+  }
+
+  .cx-console .wallet-upload-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -171,21 +171,21 @@ export const UTILITY = {
 } as const;
 
 /**
- * Synaptic Market parameters. Pricing is illustrative for the demo — adjust based on
+ * Synaptic Market parameters. Pricing is illustrative for the walkthrough — adjust based on
  * Arkiv's GLM fee resolution (currently unresolved per docs/Arkiv.md §3.1 Flaw 4).
  *
  * `contractAddress` reads from MARKET_CONTRACT_ADDRESS at module load. When the
  * env var is missing we fall back to the zero address so the seeded agents can
  * detect that and short-circuit to a no-op handle instead of trying to spend
- * GLM into a sink. The demo runner should `deploy SynapticMarket.sol` and set
+ * GLM into a sink. The judge runner should `deploy SynapticMarket.sol` and set
  * MARKET_CONTRACT_ADDRESS=0x… in .env before starting the agents.
  */
 export const MARKET_ZERO_ADDRESS =
   "0x0000000000000000000000000000000000000000" as const;
 
 export const MARKET = {
-  defaultListingPriceWei: 5_000_000_000_000_000n, // 0.005 GLM equivalent (demo)
-  /** Number of seeded competitor agents for the demo. */
+  defaultListingPriceWei: 5_000_000_000_000_000n, // 0.005 GLM equivalent (judge)
+  /** Number of seeded competitor agents for the walkthrough. */
   seededAgentCount: 3,
   /**
    * SynapticMarket Solidity escrow address. Set via MARKET_CONTRACT_ADDRESS

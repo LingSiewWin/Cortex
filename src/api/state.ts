@@ -185,7 +185,7 @@ export async function handleStateProofRequest(
   const leafCount = mmr.size();
 
   // Find leaf index: linear scan of the canonical MMR insertion order.
-  // For demo scale (≤10k leaves) this is sub-millisecond. Production with
+  // For judge scale (≤10k leaves) this is sub-millisecond. Production with
   // >100k leaves should switch to a SQL window-function query.
   const db = await initMirrorDb();
   const leaves = listLeafHashesInOrder(db);

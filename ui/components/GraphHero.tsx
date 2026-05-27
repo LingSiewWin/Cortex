@@ -1,11 +1,12 @@
 /**
- * Cortex — Demo hero surface.
+ * Cortex — Graph hero surface (judge console).
  *
  * Full-viewport MemoryGraph with HUD overlays: live memory counts, RaBitQ
- * compression, agent budget, and a seed CTA when the wallet has no memories.
+ * compression, and agent budget. Memories come from wallet uploads — no
+ * public "seed 20" CTA on the site.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import MemoryGraph from "./MemoryGraph/MemoryGraph";
 import { useSSE } from "../hooks/useSSE";
 import { formatGlm } from "../format";
@@ -20,49 +21,11 @@ interface MemoryCounts {
   rule: number;
 }
 
-interface DemoHeroProps {
+interface GraphHeroProps {
   memoryCounts: MemoryCounts | null;
   compressionRatio: number | null;
   effectiveOwner: Hex | null;
   memoryCount: number | null;
-  onSeeded: () => void;
-}
-
-function SeedInline({
-  effectiveOwner,
-  onSeeded,
-}: {
-  effectiveOwner: Hex;
-  onSeeded: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function seed() {
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await fetch("/api/seed-memories", { method: "POST" });
-      if (!res.ok) throw new Error(await res.text());
-      onSeeded();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="demo-seed">
-      <span>
-        No memories for {effectiveOwner.slice(0, 6)}…{effectiveOwner.slice(-4)} yet.
-      </span>
-      <button type="button" className="demo-seed-btn" disabled={busy} onClick={seed}>
-        {busy ? "Seeding…" : "Seed 20 memories"}
-      </button>
-      {err ? <span className="demo-seed-err">{err}</span> : null}
-    </div>
-  );
 }
 
 function LiveActionStrip() {
@@ -71,7 +34,7 @@ function LiveActionStrip() {
 
   if (!latest) {
     return (
-      <p className="demo-action demo-action-idle mono">
+      <p className="graph-action graph-action-idle mono">
         Agent cites memories every ~20s — watch nodes pulse when a lease extends.
       </p>
     );
@@ -79,8 +42,8 @@ function LiveActionStrip() {
 
   if (latest.type === "memory.cited") {
     return (
-      <p className="demo-action mono">
-        <span className="demo-action-label">Cited</span>
+      <p className="graph-action mono">
+        <span className="graph-action-label">Cited</span>
         {latest.entityKey.slice(0, 10)}… · lease +{Math.round(latest.reinforcementSeconds / 3600)}h
         {latest.promotedTo ? ` · promoted to ${latest.promotedTo}` : ""}
       </p>
@@ -89,8 +52,8 @@ function LiveActionStrip() {
 
   if (latest.type === "anchor.committed") {
     return (
-      <p className="demo-action mono">
-        <span className="demo-action-label">Anchored</span>
+      <p className="graph-action mono">
+        <span className="graph-action-label">Anchored</span>
         <a href={`${EXPLORER}/tx/${latest.txHash}`} target="_blank" rel="noreferrer">
           {latest.txHash.slice(0, 12)}…
         </a>
@@ -102,13 +65,20 @@ function LiveActionStrip() {
   return null;
 }
 
-export function DemoHero({
+function EmptyGraphHint() {
+  return (
+    <p className="graph-action graph-action-idle mono">
+      Upload a file or store a repo link below — each write adds a node to this graph.
+    </p>
+  );
+}
+
+export function GraphHero({
   memoryCounts,
   compressionRatio,
   effectiveOwner,
   memoryCount,
-  onSeeded,
-}: DemoHeroProps) {
+}: GraphHeroProps) {
   const rabitqEvents = useSSE(["rabitq.encoded"]);
   const spendEvents = useSSE(["allowance.spent"]);
 
@@ -128,67 +98,63 @@ export function DemoHero({
     return null;
   }, [spendEvents]);
 
-  const showSeed =
+  const showEmptyHint =
     effectiveOwner !== null && memoryCount !== null && memoryCount === 0;
 
   return (
-    <div className="demo-hero">
-      <MemoryGraph />
+    <div className="graph-hero">
+      <MemoryGraph surface="light" />
 
-      <div className="demo-overlay demo-overlay-top" aria-hidden={false}>
-        <div className="demo-stat-row">
-          <div className="demo-stat">
-            <span className="demo-stat-label">Memories</span>
-            <span className="demo-stat-value">
+      <div className="graph-overlay graph-overlay-top graph-overlay--editorial" aria-hidden={false}>
+        <div className="cx-tri graph-hero-stats">
+          <div className="cx-tri__cell">
+            <div className="cx-tri__label mono">Memories</div>
+            <div className="cx-tri__value">
               {memoryCounts ? memoryCounts.total : "—"}
-            </span>
+            </div>
             {memoryCounts ? (
-              <span className="demo-stat-sub mono">
+              <div className="cx-tri__sub">
                 {memoryCounts.working} fresh · {memoryCounts.episodic} reinforced ·{" "}
                 {memoryCounts.rule} core
-              </span>
+              </div>
             ) : null}
           </div>
 
-          <div className="demo-stat">
-            <span className="demo-stat-label">RaBitQ</span>
-            <span className="demo-stat-value mono">
+          <div className="cx-tri__cell">
+            <div className="cx-tri__label mono">RaBitQ</div>
+            <div className="cx-tri__value mono">
               {latestRabitq
                 ? `${latestRabitq.dim}d → ${latestRabitq.bytes}B`
                 : compressionRatio
                   ? `${compressionRatio.toFixed(0)}×`
                   : "—"}
-            </span>
+            </div>
             {latestRabitq ? (
-              <span className="demo-stat-sub mono">
+              <div className="cx-tri__sub mono">
                 {latestRabitq.ratio.toFixed(0)}× · {latestRabitq.ms.toFixed(1)}ms
-              </span>
+              </div>
             ) : null}
           </div>
 
-          <div className="demo-stat">
-            <span className="demo-stat-label">Agent budget</span>
-            <span className="demo-stat-value mono">
+          <div className="cx-tri__cell">
+            <div className="cx-tri__label mono">Agent budget</div>
+            <div className="cx-tri__value mono">
               {latestSpend ? formatGlm(latestSpend.remainingWei) : "—"}
-            </span>
+            </div>
             {latestSpend ? (
-              <span className="demo-stat-sub mono">GLM remaining on Braga</span>
+              <div className="cx-tri__sub mono">GLM remaining on Braga</div>
             ) : null}
           </div>
         </div>
       </div>
 
-      <div className="demo-overlay demo-overlay-bottom">
-        {showSeed ? (
-          <SeedInline effectiveOwner={effectiveOwner} onSeeded={onSeeded} />
-        ) : (
-          <LiveActionStrip />
-        )}
+      <div className="graph-overlay graph-overlay-bottom">
+        {showEmptyHint ? <EmptyGraphHint /> : <LiveActionStrip />}
       </div>
 
-      <p className="demo-legend mono">
+      <p className="graph-legend mono">
         Nodes = memories + uploads · brightness = lease · lines = semantic k-NN + co-citation.
-        Text files seal losslessly; images index by sha256 + caption below.
+        Text files seal losslessly; images index by sha256 + caption.
       </p>
     </div>
   );

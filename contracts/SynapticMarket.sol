@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title  SynapticMarket — minimal demo escrow for the Cortex Synaptic Market.
+/// @title  SynapticMarket — minimal judge escrow for the Cortex Synaptic Market.
 /// @author Cortex
-/// @notice This contract is a **demo escrow only**, not a production marketplace.
+/// @notice This contract is a **judge escrow only**, not a production marketplace.
 ///
 ///         What it IS:
 ///           - A minimal mechanism for a buyer to send GLM to a seller in
@@ -19,7 +19,7 @@ pragma solidity ^0.8.20;
 ///           - No on-chain reputation, ratings, or revocation.
 ///           - No re-entrancy guard library — `register` is a no-state-mutation
 ///             advisory write and `buy` uses checks-effects-interactions with a
-///             plain `call`. Suitable for the demo, not for real funds.
+///             plain `call`. Suitable for the walkthrough, not for real funds.
 ///
 ///         The listing key is the Arkiv entity key of the encrypted listing.
 ///         Sellers self-register price + ownership before publishing the

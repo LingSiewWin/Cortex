@@ -252,6 +252,7 @@ var init_cortex_config = () => {};
 // src/compression/embeddings.ts
 var exports_embeddings = {};
 __export(exports_embeddings, {
+  isUsableEmbeddingKey: () => isUsableEmbeddingKey,
   isMissingEmbeddingKey: () => isMissingEmbeddingKey,
   hasEmbeddingKey: () => hasEmbeddingKey,
   embedText: () => embedText,
@@ -262,8 +263,26 @@ __export(exports_embeddings, {
 function isMissingEmbeddingKey(err) {
   return err instanceof MissingEmbeddingKeyError || typeof err === "object" && err !== null && "isMissingEmbeddingKey" in err;
 }
+function isUsableEmbeddingKey(key) {
+  if (typeof key !== "string")
+    return false;
+  const v = key.trim();
+  if (v.length < 16)
+    return false;
+  if (/\.{2,}|\u2026|placeholder|your[-_]?key/i.test(v))
+    return false;
+  return true;
+}
+function envEmbeddingKey(name) {
+  const v = process.env[name];
+  return isUsableEmbeddingKey(v) ? v.trim() : undefined;
+}
 function hasEmbeddingKey() {
-  return Boolean(process.env["OPENAI_API_KEY"] || process.env["OPENROUTER_API_KEY"] || process.env["VOYAGE_API_KEY"] || process.env["COHERE_API_KEY"] || readConfig()?.embeddingKey);
+  if (envEmbeddingKey("OPENAI_API_KEY") || envEmbeddingKey("OPENROUTER_API_KEY") || envEmbeddingKey("VOYAGE_API_KEY") || envEmbeddingKey("COHERE_API_KEY")) {
+    return true;
+  }
+  const cfg = readConfig();
+  return isUsableEmbeddingKey(cfg?.embeddingKey);
 }
 function toFloat32(arr, provider) {
   if (!Array.isArray(arr)) {
@@ -284,6 +303,7 @@ async function embedViaOpenAI(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: OPENAI_MODEL,
       input: [text],
@@ -306,6 +326,7 @@ async function embedViaOpenRouter(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: OPENROUTER_MODEL,
       input: [text],
@@ -327,6 +348,7 @@ async function embedViaVoyage(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: VOYAGE_MODEL,
       input: [text],
@@ -348,6 +370,7 @@ async function embedViaCohere(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: COHERE_MODEL,
       texts: [text],
@@ -368,20 +391,20 @@ async function embedText(text) {
   if (typeof text !== "string" || text.length === 0) {
     throw new Error("embedText: input text must be a non-empty string");
   }
-  const openAiKey = process.env["OPENAI_API_KEY"];
+  const openAiKey = envEmbeddingKey("OPENAI_API_KEY");
   if (openAiKey)
     return embedViaOpenAI(text, openAiKey);
-  const openRouterKey = process.env["OPENROUTER_API_KEY"];
+  const openRouterKey = envEmbeddingKey("OPENROUTER_API_KEY");
   if (openRouterKey)
     return embedViaOpenRouter(text, openRouterKey);
-  const voyageKey = process.env["VOYAGE_API_KEY"];
+  const voyageKey = envEmbeddingKey("VOYAGE_API_KEY");
   if (voyageKey)
     return embedViaVoyage(text, voyageKey);
-  const cohereKey = process.env["COHERE_API_KEY"];
+  const cohereKey = envEmbeddingKey("COHERE_API_KEY");
   if (cohereKey)
     return embedViaCohere(text, cohereKey);
   const cfg = readConfig();
-  if (cfg?.embeddingKey) {
+  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
     switch (cfg.embeddingProvider ?? "openai") {
       case "openrouter":
         return embedViaOpenRouter(text, cfg.embeddingKey);
@@ -412,7 +435,7 @@ async function embedAndQuantize(text) {
   });
   return { bytes, rawEmbedding };
 }
-var EMBED_DIM2 = 1536, OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings", OPENAI_MODEL, OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings", OPENROUTER_MODEL, VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings", VOYAGE_MODEL, COHERE_EMBED_URL = "https://api.cohere.com/v2/embed", COHERE_MODEL = "embed-v4.0", MissingEmbeddingKeyError, EMBEDDING_SETUP_MESSAGE;
+var EMBED_DIM2 = 1536, EMBED_FETCH_TIMEOUT_MS = 30000, OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings", OPENAI_MODEL, OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings", OPENROUTER_MODEL, VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings", VOYAGE_MODEL, COHERE_EMBED_URL = "https://api.cohere.com/v2/embed", COHERE_MODEL = "embed-v4.0", MissingEmbeddingKeyError, EMBEDDING_SETUP_MESSAGE;
 var init_embeddings = __esm(() => {
   init_rabitq();
   init_events();

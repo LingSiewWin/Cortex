@@ -12,9 +12,9 @@
  * entity) needs the deployed `SynapticMarket.sol` + `MARKET.contractAddress`
  * wired (currently the zero address). The buy/grant code (decrypt-grant.ts) is
  * implemented and unit-tested; deploying the contract is the remaining step to
- * run it live. See JUDGE_DEFENSE.md "Is the Synaptic Market just a fake demo?".
+ * run it live. See JUDGE_DEFENSE.md "Is the Synaptic Market just a fake judge?".
  *
- * Run:  bun run market-demo
+ * Run:  bun run market-run
  */
 
 import { publishListing } from "../src/market/publish";
@@ -32,7 +32,7 @@ function explorerTx(h: string): string {
 }
 
 async function main(): Promise<void> {
-  console.log("\n=== Cortex market-demo (Synaptic Market core, real Braga) ===\n");
+  console.log("\n=== Cortex market-run (Synaptic Market core, real Braga) ===\n");
   await initMirrorDb();
 
   // 1. Publish a listing (no userKey → persistence skipped; fine for this proof).
@@ -97,6 +97,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("market-demo failed:", err);
+  console.error("market-run failed:", err);
   process.exit(1);
 });

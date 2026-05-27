@@ -1,6 +1,6 @@
 export const WEB_CONFIG = {
   walletConnect: {
-    projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() || "demo",
+    projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() || "unset",
   },
   rpc: {
     braga: process.env.NEXT_PUBLIC_BRAGA_RPC?.trim() || "https://braga.hoodi.arkiv.network/rpc",
@@ -14,5 +14,5 @@ export const WEB_CONFIG = {
 
 export function isWalletConnectConfigured(): boolean {
   const id = WEB_CONFIG.walletConnect.projectId;
-  return id.length > 0 && id !== "demo";
+  return id.length > 0 && id !== "unset";
 }

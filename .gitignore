@@ -45,8 +45,17 @@ public/
 # Finder (MacOS) folder config
 .DS_Store
 
-# private research notes
-docs/
+# Private research notes (bulk). Public docs are whitelisted below.
+docs/**
+!docs/README.md
+!docs/submission/
+!docs/submission/**
+!docs/Arkiv.md
+!docs/ERC.md
+!docs/MIRROR.md
+!docs/WALKTHROUGH.md
+!docs/Wallet.md
+!docs/RabitQ.md
 
 # private agent / IDE config
 CLAUDE.md

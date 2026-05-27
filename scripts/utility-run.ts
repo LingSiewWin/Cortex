@@ -1,13 +1,13 @@
 /**
  * Cortex — SEDM-fusion utility-weight proof (real Braga).
  *
- * Demonstrates the headline behavior of the SEDM×Cortex fusion
+ * Exercises the headline behavior of the SEDM×Cortex fusion
  * (docs/research/2026-05-23-sedm-fusion-design.md): citing a memory repeatedly
  * evolves its utility weight above the neutral baseline, which scales its
  * on-chain lease beyond the flat base — useful memories earn longer life,
  * replacing Cortex's old crude "+24h per citation".
  *
- * Run:  bun run utility-demo
+ * Run:  bun run utility-run
  */
 
 import { embedAndQuantize } from "../src/compression/embeddings";
@@ -25,7 +25,7 @@ const QUERY = "should I integrate this unaudited contract?";
 const BASE = REINFORCEMENT.workingReinforcementSeconds;
 
 async function main(): Promise<void> {
-  console.log("\n=== Cortex utility-demo (SEDM fusion, real Braga) ===\n");
+  console.log("\n=== Cortex utility-run (SEDM fusion, real Braga) ===\n");
   const db = await initMirrorDb();
   const eoa = getUserPrimaryEOA();
 
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
     attributes: [
       { key: "entityType", value: ENTITY_TYPE.OBSERVATION },
       { key: "marker", value: "audit-policy" },
-      { key: "utilityDemo", value: Date.now() },
+      { key: "utilityRun", value: Date.now() },
     ],
     expiresInSeconds: ExpirationTime.fromMinutes(60),
   });
@@ -91,6 +91,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("utility-demo failed:", err);
+  console.error("utility-run failed:", err);
   process.exit(1);
 });

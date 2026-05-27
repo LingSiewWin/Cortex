@@ -1,20 +1,20 @@
 /**
- * Cortex — scripted end-to-end demo flow.
+ * Cortex — scripted end-to-end judge flow.
  *
- * Run: bun run demo-flow
+ * Run: bun run cite-flow
  *
  * What it does (in order, against Braga):
  *   1. Pre-flight: validates SESSION_KEY_PRIVATE_KEY + USER_PRIMARY_ADDRESS,
  *      checks balance, confirms chain is live.
  *   2. Creates THREE observation entities with realistic agent-flavoured payloads.
  *      Each is RaBitQ-compressed if OPENAI_API_KEY is set, else falls back to a
- *      synthetic 1536-d unit vector so the demo works offline.
+ *      synthetic 1536-d unit vector so the walkthrough works offline.
  *   3. Runs a recall() against the just-written set, picks the top 2 as citations.
  *   4. Fires act() — exercises the accumulative-extend math and the citation
  *      validator. Prints the resulting tx hashes + explorer links.
  *   5. Prints a summary table so a judge can verify on the explorer.
  *
- * This is the script behind the "live demo" in DEMO.md. The numbers it prints
+ * This is the script behind the live Braga walkthrough. The numbers it prints
  * are the same ones the dashboard shows.
  *
  * Exit codes:
@@ -43,17 +43,17 @@ import { initMirrorDb } from "../src/mirror/db";
 import { BRAGA, ENTITY_TYPE } from "../src/constants";
 
 // ---------------------------------------------------------------------------
-// Demo payloads — three observation seeds an agent might plausibly emit.
+// Flow payloads — three observation seeds an agent might plausibly emit.
 // ---------------------------------------------------------------------------
 
-interface DemoObservation {
+interface FlowObservation {
   marker: string;
   note: string;
   /** Natural-language text fed to the embedder for RaBitQ packing. */
   observationText: string;
 }
 
-const DEMO_OBSERVATIONS: DemoObservation[] = [
+const FLOW_OBSERVATIONS: FlowObservation[] = [
   {
     marker: "obs-anti-rug",
     note: "Anti-rug heuristic seed",
@@ -88,7 +88,7 @@ function explorerEntity(entityKey: string): string {
 
 /**
  * Embed text → RaBitQ pack. Falls back to a deterministic synthetic vector if
- * OPENAI_API_KEY is missing so the demo can be exercised offline.
+ * OPENAI_API_KEY is missing so the walkthrough can be exercised offline.
  */
 async function embedOrSynth(text: string): Promise<Uint8Array> {
   let vec: Float32Array;
@@ -125,7 +125,7 @@ function fmtTxLine(label: string, txHash: string): string {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  console.log("\n=== Cortex demo flow ===\n");
+  console.log("\n=== Cortex judge flow ===\n");
 
   // -- Step 1: pre-flight -------------------------------------------------
 
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
 
   console.log("\n[1/4] Creating 3 observation entities…\n");
   const creates = [];
-  for (const obs of DEMO_OBSERVATIONS) {
+  for (const obs of FLOW_OBSERVATIONS) {
     const packed = await embedOrSynth(obs.observationText);
     creates.push({
       payload: packed,
@@ -173,7 +173,7 @@ async function main(): Promise<void> {
         { key: "entityType", value: ENTITY_TYPE.OBSERVATION },
         { key: "marker", value: obs.marker },
         { key: "note", value: obs.note },
-        { key: "demoRun", value: Date.now() },
+        { key: "flowRun", value: Date.now() },
       ],
       expiresInSeconds: ExpirationTime.fromMinutes(60),
     });
@@ -193,7 +193,7 @@ async function main(): Promise<void> {
   console.log(fmtTxLine("create batch tx", createResult.txHash));
   for (let i = 0; i < createResult.entityKeys.length; i++) {
     const key = createResult.entityKeys[i]!;
-    const obs = DEMO_OBSERVATIONS[i]!;
+    const obs = FLOW_OBSERVATIONS[i]!;
     console.log(`     #${i + 1}  ${key}  (${obs.marker})`);
     console.log(`         → ${explorerEntity(key)}`);
   }
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
       action: "Declined to buy TokenX — cited anti-rug heuristic + user policy.",
       citations,
       userPrimaryEOA: userPrimary as Hex,
-      sessionId: `demo-flow-${Date.now()}`,
+      sessionId: `cite-flow-${Date.now()}`,
     });
   } catch (err) {
     console.error(
@@ -257,7 +257,7 @@ async function main(): Promise<void> {
   console.log(`   status      : ${actResult.status} (outbox #${actResult.outboxId})`);
 
   // act() is optimistic — the on-chain work is queued. Drain it now so the
-  // demo produces real Braga tx hashes (the dashboard worker does this on a
+  // judge produces real Braga tx hashes (the dashboard worker does this on a
   // cadence; here we force one pass).
   const db = await initMirrorDb();
   const drained = await drainOutbox(db);
@@ -283,7 +283,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    "\n✅ Demo flow complete. Open the explorer to verify on-chain state:",
+    "\n✅ Cite flow complete. Open the explorer to verify on-chain state:",
   );
   console.log("  ", BRAGA.explorer);
   console.log(
@@ -292,6 +292,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("\ndemo-flow crashed:", err);
+  console.error("\ncite-flow crashed:", err);
   process.exit(99);
 });

@@ -76,6 +76,7 @@ import {
   type MirroredEntity,
 } from "./mirror/replay";
 import { PROJECT_ATTRIBUTE, ENTITY_TYPE, REINFORCEMENT, BRAGA } from "./constants";
+import { decodeMemoryPreview } from "./lib/memory-preview.ts";
 import { normaliseAddress } from "./lib/arkiv-client";
 import {
   buildCortexSiwe,
@@ -168,6 +169,8 @@ function classifyTier(entityType: string | null | undefined): MemoryTier {
       return "episodic";
     case ENTITY_TYPE.RULE:
       return "rule";
+    case ENTITY_TYPE.DOCUMENT:
+      return "rule";
     default:
       return "other";
   }
@@ -240,7 +243,8 @@ function isMemoryEntity(entity: MirroredEntity): boolean {
   return (
     t === ENTITY_TYPE.OBSERVATION ||
     t === ENTITY_TYPE.EPISODE ||
-    t === ENTITY_TYPE.RULE
+    t === ENTITY_TYPE.RULE ||
+    t === ENTITY_TYPE.DOCUMENT
   );
 }
 
@@ -565,21 +569,15 @@ export async function handleMemoryDetailRequest(req: Request): Promise<Response>
   if (!isCortexEntity(entity))
     return errorJson(404, "entity is not a Cortex entity");
   const currentBlock = await getCurrentBlockEstimate();
+  const db = await initMirrorDb();
+  const citations = getCitationRows(db, [entity.entityKey]);
+  const preview = await decodeMemoryPreview(entity);
   return json({
-    summary: summariseMemory(entity, currentBlock),
+    summary: summariseMemory(entity, currentBlock, citations.get(entity.entityKey)),
     attributes: entity.attributes,
-    payloadPreview: previewPayload(entity.payload),
+    payloadPreview: preview.payloadPreview,
+    text: preview.text ?? null,
   });
-}
-
-function previewPayload(payload: Uint8Array | null): string | null {
-  if (!payload || payload.byteLength === 0) return null;
-  // First 200 bytes — payloads are RaBitQ-compressed binary; we render the
-  // first chunk as a hex preview so the inspector has something to show.
-  const slice = payload.slice(0, 200);
-  let out = "";
-  for (const b of slice) out += b.toString(16).padStart(2, "0");
-  return out + (payload.byteLength > 200 ? "…" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,7 +998,7 @@ if (isEntry) {
   // the user's wallet extensions (MetaMask/Phantom/Rabby fighting over
   // window.ethereum). That makes harmless extension noise look like Cortex
   // crashed. So the overlay + HMR are OPT-IN for active development; the
-  // default (and demo) serve is clean even with conflicting wallets installed.
+  // default (and judge) serve is clean even with conflicting wallets installed.
   const DEV_OVERLAY = process.env.CORTEX_DEV === "1";
   const server = Bun.serve({
     port: PORT,
@@ -1027,7 +1025,7 @@ if (isEntry) {
       // Dashboard wallet adoption — re-keys the autonomous loop + AES seal key
       "/api/auth/adopt": { POST: handleAdoptRequest },
       "/api/auth/me": handleAuthMe,
-      // Bootstrap: create 8 demo observations sealed with the adopted wallet's
+      // Bootstrap: create 8 judge observations sealed with the adopted wallet's
       // key so the loop has something to recall+cite right after adoption.
       "/api/seed-memories": { POST: handleSeedRequest },
       "/api/store-file": { POST: handleStoreFileRequest },

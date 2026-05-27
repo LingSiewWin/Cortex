@@ -14,7 +14,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ConsoleLink } from "./ConsoleLink";
 import "./CortexFooter.css";
 
 // A static still (not the hero loop) keeps the footer — and the video-less
@@ -79,13 +78,9 @@ function TreeColumn({ group }: { group: LinkGroup }) {
             <span className="cxf-tree__branch mono" aria-hidden>
               {i === last ? "└──" : "├──"}
             </span>
-            {item.href === "/console" ? (
-              <ConsoleLink className="cxf-tree__link">{item.label}</ConsoleLink>
-            ) : (
-              <a className="cxf-tree__link" href={item.href} {...extraProps(item)}>
-                {item.label}
-              </a>
-            )}
+            <a className="cxf-tree__link" href={item.href} {...extraProps(item)}>
+              {item.label}
+            </a>
           </li>
         ))}
       </ul>

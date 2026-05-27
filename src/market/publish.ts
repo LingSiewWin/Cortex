@@ -30,7 +30,7 @@ import { getSessionKeyAddress } from "../lib/arkiv-client";
 import { saveListingKey } from "../mirror/db";
 import { ENTITY_TYPE } from "../constants";
 
-/** Lifespan of a market listing. Rules go stale; 30 days is the demo default. */
+/** Lifespan of a market listing. Rules go stale; 30 days is the walkthrough default. */
 const LISTING_LIFESPAN_SECONDS = 30 * 24 * 60 * 60;
 
 export interface PublishListingResult {
@@ -61,7 +61,7 @@ export async function publishListing(opts: {
    * persist it via `saveListingKey` so the grant-watcher can rehydrate
    * after a restart. If omitted, persistence is skipped — and the caller
    * is responsible for accepting that "process restart = unfulfillable".
-   * For the demo runner this is always provided.
+   * For the walkthrough runner this is always provided.
    */
   userKey?: CryptoKey;
   /**

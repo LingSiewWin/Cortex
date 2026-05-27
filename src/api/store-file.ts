@@ -1,7 +1,7 @@
 /**
  * Cortex — POST /api/store-file (multipart).
  *
- * Upload a file from /console demo mode. Text/code/markdown is sealed losslessly;
+ * Upload a file from /console judge mode. Text/code/markdown is sealed losslessly;
  * images and other binaries are indexed by filename + mime + sha256 (user-approved).
  *
  * Same auth gates as POST /api/seed-memories.
@@ -11,6 +11,8 @@ import type { Hex } from "@arkiv-network/sdk";
 import { getEffective } from "../agent/owner-identity";
 import { storeUploadedFile } from "../lib/store-file";
 import { prepareUploadedFile, isMissingEmbeddingKey } from "../lib/store-file-prepare";
+import { quotePreparedUpload } from "../lib/upload-quote.ts";
+import type { Address } from "viem";
 import { withTimeout } from "../lib/timeouts";
 
 export interface SiweSessionLike {
@@ -150,13 +152,24 @@ export async function handleStoreFilePrepareRequest(req: Request): Promise<Respo
   const filename = raw.name.trim() || "upload";
   const mime = raw.type.trim() || "application/octet-stream";
 
+  const url = new URL(req.url);
+  const ownerParam = url.searchParams.get("owner");
+  const owner =
+    ownerParam && ownerParam.startsWith("0x") && ownerParam.length >= 10
+      ? (ownerParam as Address)
+      : undefined;
+
   try {
     const prepared = await withTimeout(
       () => prepareUploadedFile({ filename, mime, bytes, caption }),
       45_000,
       "store-file/prepare (embed)",
     );
-    return json(200, prepared);
+    const quote = await quotePreparedUpload(prepared, {
+      owner,
+      sourceFileBytes: bytes.length,
+    });
+    return json(200, { ...prepared, quote });
   } catch (err) {
     if (isMissingEmbeddingKey(err)) {
       return json(503, {

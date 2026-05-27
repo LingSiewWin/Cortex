@@ -17,8 +17,8 @@
  * mutated by SSE events. NEVER setState per event or per frame — typed buffers
  * are mutated in useFrame and `needsUpdate` flipped once.
  *
- * Self-contained: console.tsx mounts `<MemoryGraph />` with no props. Degrades
- * gracefully with an empty graph and when WebGL is unavailable.
+ * Self-contained: console.tsx mounts `<MemoryGraph />` (optional `surface` prop).
+ * Degrades gracefully with an empty graph and when WebGL is unavailable.
  *
  * Convention matches `ui/components/MemoryHero/*` (raw THREE.ShaderMaterial,
  * useFrame buffer mutation, EffectComposer/Bloom from @react-three/postprocessing).
@@ -39,7 +39,8 @@ import type { TopologyGraph, TopologyTier } from "./types";
 // ---------------------------------------------------------------------------
 // Visual language (TouchDesigner skill §"Visual language")
 // ---------------------------------------------------------------------------
-const BG = "#07070b"; // near-black so bloom isolates only the nodes
+const BG_DARK = "#07070b"; // near-black so bloom isolates only the nodes
+const BG_LIGHT = "#f4f4f6"; // editorial console — matches landing paper
 // Monochrome thermodynamic: ember (hot/live) → frozen white (cold/durable).
 const TIER_COLOR: Record<TopologyTier, THREE.Color> = {
   working: new THREE.Color("#ff5a00"), // ember — hot, freshly written
@@ -489,10 +490,22 @@ function GraphField({ graph, store }: { graph: TopologyGraph; store: GraphStore 
 // ---------------------------------------------------------------------------
 
 function SSEBridge({ store }: { store: GraphStore }) {
+  const created = useSSE(["memory.created"]);
   const cited = useSSE(["memory.cited"]);
   const evicted = useSSE(["memory.evicted"]);
+  const lastCreated = useRef<string | null>(null);
   const lastCited = useRef<string | null>(null);
   const lastEvicted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (created.length === 0) return;
+    const last = created[created.length - 1];
+    if (!last || last.id === lastCreated.current) return;
+    lastCreated.current = last.id;
+    if (last.event.type === "memory.created") {
+      store.sparkle(last.event.entityKey);
+    }
+  }, [created, store]);
 
   useEffect(() => {
     if (cited.length === 0) return;
@@ -551,10 +564,16 @@ function webglAvailable(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// MemoryGraph — public, self-contained, no props.
+// MemoryGraph — public, self-contained.
 // ---------------------------------------------------------------------------
 
-export default function MemoryGraph() {
+export interface MemoryGraphProps {
+  /** `light` matches the editorial landing/console paper surface. */
+  surface?: "dark" | "light";
+}
+
+export default function MemoryGraph({ surface = "dark" }: MemoryGraphProps) {
+  const bg = surface === "light" ? BG_LIGHT : BG_DARK;
   const { graph, loading, error } = useTopology();
   // One store per mounted graph, held in a ref (lives outside React renders).
   const storeRef = useRef<GraphStore | null>(null);
@@ -588,10 +607,10 @@ export default function MemoryGraph() {
         dpr={dpr}
         style={{ position: "absolute", inset: 0 }}
         onCreated={({ scene }) => {
-          scene.background = new THREE.Color(BG);
+          scene.background = new THREE.Color(bg);
         }}
       >
-        <color attach="background" args={[BG]} />
+        <color attach="background" args={[bg]} />
 
         {/* drei PerformanceMonitor scales pixel ratio down on weak GPUs. */}
         <PerformanceMonitor

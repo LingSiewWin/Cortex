@@ -75,7 +75,7 @@ const DEFAULTS: Required<MapperOptions> = {
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~2.39996 rad
 /**
  * Multiplier on the golden-angle spiral radius so neighbouring nodes are
- * farther apart than each billboard disc — otherwise small corpora (seed demo
+ * farther apart than each billboard disc — otherwise small corpora (seed judge
  * ≈8 memories) collapse visually into one additive glow blob in the WebGL view.
  */
 const LAYOUT_RADIUS_SCALE = 4.0;
@@ -83,7 +83,7 @@ const LAYOUT_RADIUS_SCALE = 4.0;
 const PROJECT_RING_RADIUS = 28;
 /**
  * Up to this many memories per project → one Mapper node each (no cover
- * clustering). Keeps demo graphs dense and readable; larger corpora use the
+ * clustering). Keeps judge graphs dense and readable; larger corpora use the
  * full Mapper pipeline.
  */
 const FINE_GRAIN_MAX = 24;
@@ -414,7 +414,7 @@ function buildProjectNodes(
   const m = localPoints.length;
   const built: BuiltNode[] = [];
 
-  // Fine grain: small corpora → one node per memory (demo-dense field). Above
+  // Fine grain: small corpora → one node per memory (judge-dense field). Above
   // FINE_GRAIN_MAX we run the full Mapper cover + cluster pipeline.
   const projK = Math.min(cfg.k, Math.max(1, m - 1));
   const fineGrain = m <= FINE_GRAIN_MAX;
@@ -515,7 +515,7 @@ function pickLabelLocal(
 
 /**
  * k-nearest-neighbour edges within a project (fine-grain mode). Gives the
- * sparse demo field a visible neural web before Mapper cover overlap exists.
+ * sparse judge field a visible neural web before Mapper cover overlap exists.
  */
 function addKnnEdges(
   built: BuiltNode[],

@@ -10,7 +10,7 @@
  * Prints every captured event and the real tx hashes. This is the genuine
  * spine proof: real chain RPC → instrumentation → bus events, end to end.
  *
- * NOTE: demo-flow.ts runs as a SEPARATE process, so its events fire on a
+ * NOTE: cite-flow.ts runs as a SEPARATE process, so its events fire on a
  * different in-process bus and would NOT reach the dashboard's SSE stream.
  * The autonomous loop is wired to run INSIDE the dashboard server process so
  * its events do reach SSE — see src/ui-server.ts. This script verifies the

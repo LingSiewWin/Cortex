@@ -67,7 +67,7 @@ export function checkManualAllowed(estCostWei: bigint, ip = "global"): SpendDeci
     return {
       ok: false,
       status: 402,
-      reason: "session spend cap reached — restart to reset the demo budget",
+      reason: "session spend cap reached — restart to reset the walkthrough budget",
     };
   }
   return { ok: true };

@@ -15382,6 +15382,25 @@ var init_erc8010 = __esm(() => {
   init_SignatureErc8010();
 });
 
+// node_modules/viem/_esm/utils/signature/recoverMessageAddress.js
+async function recoverMessageAddress({ message, signature }) {
+  return recoverAddress({ hash: hashMessage(message), signature });
+}
+var init_recoverMessageAddress = __esm(() => {
+  init_hashMessage();
+  init_recoverAddress();
+});
+
+// node_modules/viem/_esm/utils/signature/verifyMessage.js
+async function verifyMessage({ address, message, signature }) {
+  return isAddressEqual(getAddress(address), await recoverMessageAddress({ message, signature }));
+}
+var init_verifyMessage = __esm(() => {
+  init_getAddress();
+  init_isAddressEqual();
+  init_recoverMessageAddress();
+});
+
 // node_modules/viem/_esm/utils/index.js
 var init_utils5 = __esm(() => {
   init_fromHex();
@@ -16604,7 +16623,7 @@ var init_verifyHash = __esm(() => {
 });
 
 // node_modules/viem/_esm/actions/public/verifyMessage.js
-async function verifyMessage(client, { address, message, factory, factoryData, signature, ...callRequest }) {
+async function verifyMessage2(client, { address, message, factory, factoryData, signature, ...callRequest }) {
   const hash3 = hashMessage(message);
   return getAction(client, verifyHash, "verifyHash")({
     address,
@@ -16615,7 +16634,7 @@ async function verifyMessage(client, { address, message, factory, factoryData, s
     ...callRequest
   });
 }
-var init_verifyMessage = __esm(() => {
+var init_verifyMessage2 = __esm(() => {
   init_hashMessage();
   init_verifyHash();
 });
@@ -17406,7 +17425,7 @@ function publicActions(client) {
     simulateCalls: (args) => simulateCalls(client, args),
     simulateContract: (args) => simulateContract(client, args),
     verifyHash: (args) => verifyHash(client, args),
-    verifyMessage: (args) => verifyMessage(client, args),
+    verifyMessage: (args) => verifyMessage2(client, args),
     verifySiweMessage: (args) => verifySiweMessage(client, args),
     verifyTypedData: (args) => verifyTypedData(client, args),
     uninstallFilter: (args) => uninstallFilter(client, args),
@@ -17460,7 +17479,7 @@ var init_public = __esm(() => {
   init_simulateCalls();
   init_simulateContract();
   init_verifyHash();
-  init_verifyMessage();
+  init_verifyMessage2();
   init_verifyTypedData();
   init_waitForTransactionReceipt();
   init_watchBlockNumber();
@@ -18146,6 +18165,7 @@ var init__esm = __esm(() => {
   init_toBytes();
   init_toHex();
   init_toRlp();
+  init_verifyMessage();
 });
 
 // node_modules/@arkiv-network/sdk/src/utils/logger.ts
@@ -19393,7 +19413,11 @@ function getWalletClient() {
   const customRpc = process.env.CORTEX_BRAGA_RPC;
   _walletClient = createWalletClient({
     chain: braga,
-    transport: http(customRpc ?? BRAGA.httpRpc),
+    transport: http(customRpc ?? BRAGA.httpRpc, {
+      timeout: 60000,
+      retryCount: 2,
+      retryDelay: 500
+    }),
     account: privateKeyToAccount(pk)
   });
   return _walletClient;
@@ -19560,43 +19584,130 @@ var init_crypto = __esm(() => {
   init_constants();
 });
 
+// src/agent/owner-identity.ts
+var exports_owner_identity = {};
+__export(exports_owner_identity, {
+  getEffective: () => getEffective,
+  adopt: () => adopt,
+  _setOwnerIdentityForTest: () => _setOwnerIdentityForTest,
+  _resetOwnerIdentity: () => _resetOwnerIdentity,
+  _peekCached: () => _peekCached
+});
+async function resolveFromEnv() {
+  const addr = process.env.USER_PRIMARY_ADDRESS;
+  const ownerAddress = addr && ADDR_RE.test(addr) ? addr : null;
+  let signature = null;
+  const sigEnv = process.env.CORTEX_USER_SIGNATURE;
+  if (sigEnv && SIG_RE.test(sigEnv)) {
+    signature = sigEnv;
+  } else {
+    const pkEnv = process.env.CORTEX_USER_PRIVATE_KEY;
+    if (pkEnv && PK_RE.test(pkEnv)) {
+      const account = privateKeyToAccount(pkEnv);
+      const message = keyDerivationMessage(account.address);
+      signature = await account.signMessage({ message });
+    } else {
+      const cfgSig = readConfig()?.userSignature;
+      if (cfgSig && SIG_RE.test(cfgSig))
+        signature = cfgSig;
+    }
+  }
+  const payloadKey = signature ? await derivePayloadKey(signature) : null;
+  const source = ownerAddress || signature ? "env" : "none";
+  return { ownerAddress, userSignature: signature, payloadKey, source };
+}
+async function getEffective() {
+  if (_cached2)
+    return _cached2;
+  _cached2 = await resolveFromEnv();
+  return _cached2;
+}
+async function adopt(opts) {
+  if (!ADDR_RE.test(opts.address)) {
+    throw new Error("adopt: address must be 0x-prefixed 40-hex EOA");
+  }
+  if (!SIG_RE.test(opts.signature)) {
+    throw new Error("adopt: signature must be 0x-prefixed hex");
+  }
+  const message = keyDerivationMessage(opts.address);
+  const ok = await verifyMessage({
+    address: opts.address,
+    message,
+    signature: opts.signature
+  });
+  if (!ok) {
+    throw new Error("adopt: signature did not verify against address");
+  }
+  const payloadKey = await derivePayloadKey(opts.signature);
+  _cached2 = {
+    ownerAddress: opts.address,
+    userSignature: opts.signature,
+    payloadKey,
+    source: "browser"
+  };
+  return _cached2;
+}
+function _resetOwnerIdentity() {
+  _cached2 = null;
+}
+function _setOwnerIdentityForTest(view) {
+  _cached2 = view;
+}
+function _peekCached() {
+  return _cached2;
+}
+var ADDR_RE, PK_RE, SIG_RE, _cached2 = null;
+var init_owner_identity = __esm(() => {
+  init__esm();
+  init_accounts();
+  init_crypto();
+  init_cortex_config();
+  ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+  PK_RE = /^0x[0-9a-fA-F]{64}$/;
+  SIG_RE = /^0x[0-9a-fA-F]+$/;
+});
+
 // src/lib/payload-key.ts
 async function resolveSignature() {
   const sig = process.env.CORTEX_USER_SIGNATURE;
-  if (sig && SIG_RE.test(sig))
+  if (sig && SIG_RE2.test(sig))
     return sig;
   const pk = process.env.CORTEX_USER_PRIVATE_KEY;
-  if (pk && PK_RE.test(pk)) {
+  if (pk && PK_RE2.test(pk)) {
     const account = privateKeyToAccount(pk);
     const message = keyDerivationMessage(account.address);
     return await account.signMessage({ message });
   }
   const cfgSig = readConfig()?.userSignature;
-  if (cfgSig && SIG_RE.test(cfgSig))
+  if (cfgSig && SIG_RE2.test(cfgSig))
     return cfgSig;
   return null;
 }
 async function getPayloadKey() {
-  if (_cached2 !== undefined)
-    return _cached2;
+  const { getEffective: getEffective2 } = await Promise.resolve().then(() => (init_owner_identity(), exports_owner_identity));
+  const singletonKey = (await getEffective2()).payloadKey;
+  if (singletonKey)
+    return singletonKey;
+  if (_cached3 !== undefined)
+    return _cached3;
   const sig = await resolveSignature();
-  _cached2 = sig ? await derivePayloadKey(sig) : null;
-  return _cached2;
+  _cached3 = sig ? await derivePayloadKey(sig) : null;
+  return _cached3;
 }
 async function requirePayloadKey() {
   const key = await getPayloadKey();
   if (!key) {
-    throw new Error("Cortex payload key unavailable: set CORTEX_USER_SIGNATURE (preferred) or " + "CORTEX_USER_PRIVATE_KEY (dev) so memories can be sealed/opened. " + "See scripts/derive-user-signature.ts to generate a signature.");
+    throw new Error("Cortex payload key unavailable: set CORTEX_USER_SIGNATURE (preferred) or CORTEX_USER_PRIVATE_KEY (dev) so memories can be sealed/opened. See scripts/derive-user-signature.ts to generate a signature.");
   }
   return key;
 }
-var _cached2, SIG_RE, PK_RE;
+var _cached3, SIG_RE2, PK_RE2;
 var init_payload_key = __esm(() => {
   init_accounts2();
   init_crypto();
   init_cortex_config();
-  SIG_RE = /^0x[0-9a-fA-F]+$/;
-  PK_RE = /^0x[0-9a-fA-F]{64}$/;
+  SIG_RE2 = /^0x[0-9a-fA-F]+$/;
+  PK_RE2 = /^0x[0-9a-fA-F]{64}$/;
 });
 
 // node_modules/cbor-x/decode.js
@@ -22751,7 +22862,7 @@ async function createDocumentMemory(input) {
   if (typeof input.text !== "string" || input.text.trim().length === 0) {
     throw new Error("createDocumentMemory: text must be a non-empty string");
   }
-  const contentSha256 = await sha256Hex(input.text);
+  const contentSha256 = input.contentSha256 ?? await sha256Hex(input.text);
   const docId = input.docId ?? (input.vaultPath ? `cx_${(await sha256Hex(input.vaultPath)).slice(0, 16)}` : `cx_${contentSha256.slice(0, 16)}`);
   const payload = encodeDocumentPayload({
     text: input.text,
@@ -22776,6 +22887,10 @@ async function createDocumentMemory(input) {
     attributes.push({ key: "sessionId", value: input.sessionId });
   if (input.kind)
     attributes.push({ key: "kind", value: input.kind });
+  if (input.mimeType)
+    attributes.push({ key: "mimeType", value: input.mimeType });
+  if (input.filename)
+    attributes.push({ key: "filename", value: input.filename });
   const { txHash, entityKey } = await createMemory({
     payload,
     attributes,
@@ -22803,6 +22918,7 @@ var init_batch_writer = __esm(() => {
 // src/compression/embeddings.ts
 var exports_embeddings = {};
 __export(exports_embeddings, {
+  isUsableEmbeddingKey: () => isUsableEmbeddingKey,
   isMissingEmbeddingKey: () => isMissingEmbeddingKey,
   hasEmbeddingKey: () => hasEmbeddingKey,
   embedText: () => embedText,
@@ -22813,8 +22929,26 @@ __export(exports_embeddings, {
 function isMissingEmbeddingKey(err) {
   return err instanceof MissingEmbeddingKeyError || typeof err === "object" && err !== null && "isMissingEmbeddingKey" in err;
 }
+function isUsableEmbeddingKey(key) {
+  if (typeof key !== "string")
+    return false;
+  const v = key.trim();
+  if (v.length < 16)
+    return false;
+  if (/\.{2,}|\u2026|placeholder|your[-_]?key/i.test(v))
+    return false;
+  return true;
+}
+function envEmbeddingKey(name) {
+  const v = process.env[name];
+  return isUsableEmbeddingKey(v) ? v.trim() : undefined;
+}
 function hasEmbeddingKey() {
-  return Boolean(process.env["OPENAI_API_KEY"] || process.env["OPENROUTER_API_KEY"] || process.env["VOYAGE_API_KEY"] || process.env["COHERE_API_KEY"] || readConfig()?.embeddingKey);
+  if (envEmbeddingKey("OPENAI_API_KEY") || envEmbeddingKey("OPENROUTER_API_KEY") || envEmbeddingKey("VOYAGE_API_KEY") || envEmbeddingKey("COHERE_API_KEY")) {
+    return true;
+  }
+  const cfg = readConfig();
+  return isUsableEmbeddingKey(cfg?.embeddingKey);
 }
 function toFloat32(arr, provider) {
   if (!Array.isArray(arr)) {
@@ -22835,6 +22969,7 @@ async function embedViaOpenAI(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: OPENAI_MODEL,
       input: [text],
@@ -22857,6 +22992,7 @@ async function embedViaOpenRouter(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: OPENROUTER_MODEL,
       input: [text],
@@ -22878,6 +23014,7 @@ async function embedViaVoyage(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: VOYAGE_MODEL,
       input: [text],
@@ -22899,6 +23036,7 @@ async function embedViaCohere(text, apiKey) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: COHERE_MODEL,
       texts: [text],
@@ -22919,20 +23057,20 @@ async function embedText(text) {
   if (typeof text !== "string" || text.length === 0) {
     throw new Error("embedText: input text must be a non-empty string");
   }
-  const openAiKey = process.env["OPENAI_API_KEY"];
+  const openAiKey = envEmbeddingKey("OPENAI_API_KEY");
   if (openAiKey)
     return embedViaOpenAI(text, openAiKey);
-  const openRouterKey = process.env["OPENROUTER_API_KEY"];
+  const openRouterKey = envEmbeddingKey("OPENROUTER_API_KEY");
   if (openRouterKey)
     return embedViaOpenRouter(text, openRouterKey);
-  const voyageKey = process.env["VOYAGE_API_KEY"];
+  const voyageKey = envEmbeddingKey("VOYAGE_API_KEY");
   if (voyageKey)
     return embedViaVoyage(text, voyageKey);
-  const cohereKey = process.env["COHERE_API_KEY"];
+  const cohereKey = envEmbeddingKey("COHERE_API_KEY");
   if (cohereKey)
     return embedViaCohere(text, cohereKey);
   const cfg = readConfig();
-  if (cfg?.embeddingKey) {
+  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
     switch (cfg.embeddingProvider ?? "openai") {
       case "openrouter":
         return embedViaOpenRouter(text, cfg.embeddingKey);
@@ -22963,7 +23101,7 @@ async function embedAndQuantize(text) {
   });
   return { bytes, rawEmbedding };
 }
-var EMBED_DIM3 = 1536, OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings", OPENAI_MODEL, OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings", OPENROUTER_MODEL, VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings", VOYAGE_MODEL, COHERE_EMBED_URL = "https://api.cohere.com/v2/embed", COHERE_MODEL = "embed-v4.0", MissingEmbeddingKeyError, EMBEDDING_SETUP_MESSAGE;
+var EMBED_DIM3 = 1536, EMBED_FETCH_TIMEOUT_MS = 30000, OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings", OPENAI_MODEL, OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings", OPENROUTER_MODEL, VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings", VOYAGE_MODEL, COHERE_EMBED_URL = "https://api.cohere.com/v2/embed", COHERE_MODEL = "embed-v4.0", MissingEmbeddingKeyError, EMBEDDING_SETUP_MESSAGE;
 var init_embeddings = __esm(() => {
   init_rabitq();
   init_events();

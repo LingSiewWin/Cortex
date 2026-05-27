@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -44,6 +45,21 @@ export function PixelWaveProvider({ children }: { children: ReactNode }) {
     }),
     [goToConsole],
   );
+
+  // Plain <a href="/console"> in the footer (and elsewhere) — same transition as the hero CTA.
+  useEffect(() => {
+    const onDocClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest("a[href='/console']");
+      if (!anchor?.closest(".cx, .cxf")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      goToConsole();
+    };
+    document.addEventListener("click", onDocClick, true);
+    return () => document.removeEventListener("click", onDocClick, true);
+  }, [goToConsole]);
 
   return <PixelWaveContext.Provider value={value}>{children}</PixelWaveContext.Provider>;
 }

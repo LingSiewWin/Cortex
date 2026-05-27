@@ -3,7 +3,7 @@
  *
  * After the user adopts their wallet on /console, the constellation is empty
  * (their fresh wallet owns nothing). This endpoint lets the dashboard create
- * 8 demo observations sealed with the adopted wallet's key in one Arkiv tx —
+ * 8 judge observations sealed with the adopted wallet's key in one Arkiv tx —
  * giving the autonomous loop something to recall + cite immediately.
  *
  * Gates:
@@ -19,7 +19,7 @@
 
 import type { Hex } from "@arkiv-network/sdk";
 import { getEffective } from "../agent/owner-identity";
-import { seedDemoMemories } from "../agent/seed-memories";
+import { seedMemories } from "../agent/seed-memories";
 
 export interface SiweSessionLike {
   address: Hex;
@@ -80,7 +80,7 @@ export async function handleSeedRequest(req: Request): Promise<Response> {
   }
 
   try {
-    const result = await seedDemoMemories();
+    const result = await seedMemories();
     return json(200, {
       txHash: result.txHash,
       entityKeys: result.entityKeys,

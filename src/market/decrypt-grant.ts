@@ -21,7 +21,7 @@
  * v1 fidelity caveat: the grant entity carries the raw decryption key as its
  * payload. Anyone who can read the grant entity (the whole world, since Arkiv
  * is a public DB) can also decrypt the listing. v2 will seal the key to the
- * buyer's pubkey via ECIES; for the demo, the buyer-attribute filter is the
+ * buyer's pubkey via ECIES; for the walkthrough, the buyer-attribute filter is the
  * only access control. This is documented in README Trust Assumptions.
  */
 

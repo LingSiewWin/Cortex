@@ -6,7 +6,7 @@
  * VERIFIES IT CLIENT-SIDE TOO (so the user sees that verification doesn't
  * require trusting the server).
  *
- * This is the demo moment that proves "the agent's history is cryptographically
+ * This is the walkthrough moment that proves "the agent's history is cryptographically
  * anchored, not just stored." Pasting a real entityKey produces a real proof
  * with real keccak256 hashes that verify against the on-chain anchor.
  */
@@ -85,9 +85,10 @@ export function ProofPlayground() {
       <div className="section-title">Proof playground</div>
       <div className="card">
         <p style={{ marginTop: 0, color: "var(--text-2)", fontSize: 13.5 }}>
-          Paste an entity key. The server fetches its MMR inclusion proof and
-          runs <code>verifyMMRProof</code>. You can re-verify in the browser
-          by inspecting the path + peaks below.
+          Paste a <strong>memory entity key</strong> (from upload success or the inspector),
+          not a transaction hash. The server fetches its MMR inclusion proof and runs{" "}
+          <code>verifyMMRProof</code>. Wallet <code>document</code> uploads may not be in the
+          MMR yet — that is separate from reading their text in the inspector.
         </p>
 
         <div className="playground-input-row">

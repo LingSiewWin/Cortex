@@ -1,0 +1,12 @@
+#!/bin/sh
+# Strip Cursor attribution trailers from commit messages (agent/IDE injection).
+COMMIT_MSG_FILE="$1"
+[ -f "$COMMIT_MSG_FILE" ] || exit 0
+
+if sed --version 2>/dev/null | grep -q GNU; then
+  sed -i '/Co-authored-by: Cursor/d;/Made-with: Cursor/d;/cursoragent@cursor\.com/d' "$COMMIT_MSG_FILE"
+else
+  sed -i '' '/Co-authored-by: Cursor/d;/Made-with: Cursor/d;/cursoragent@cursor\.com/d' "$COMMIT_MSG_FILE"
+fi
+
+exit 0

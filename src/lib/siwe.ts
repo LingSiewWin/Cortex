@@ -106,7 +106,7 @@ export function formatSiweMessage(input: SiweMessageInput): string {
  */
 /**
  * Options for the Cortex SIWE builder. `domain` and `uri` are REQUIRED in v1.5+
- * (audit feedback) — hard-coding them to "cortex.app" caused localhost demos to
+ * (audit feedback) — hard-coding them to "cortex.app" caused localhost runs to
  * produce signatures that browsers' SIWE checks reject.
  *
  * Pass `domain: window.location.host` and `uri: window.location.origin` from the
