@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Vercel project still points Output Directory at `dist` (legacy Bun bundle).
+  // Match it here until dashboard is cleared; Next default is `.next`.
+  distDir: "dist",
   outputFileTracingRoot: path.join(__dirname),
   transpilePackages: ["@arkiv-network/sdk"],
   serverExternalPackages: ["better-sqlite3"],

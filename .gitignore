@@ -28,8 +28,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
-# Next.js
+# Next.js (distDir: dist in next.config.ts for Vercel output path)
 .next/
+dist/
 out/
 
 # Copied at build time from assets/ (see package.json build script)
