@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "cortex-memory": {
+      "command": "bun",
+      "args": ["run", "src/mcp/server.ts"],
+      "env": {
+        "USER_PRIMARY_ADDRESS": "${USER_PRIMARY_ADDRESS}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "CORTEX_MIRROR_PATH": "${CORTEX_MIRROR_PATH}"
+      }
+    }
+  }
+}
