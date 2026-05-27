@@ -13,6 +13,7 @@ import type { Hex } from "@arkiv-network/sdk";
 import {
   startAutonomousLoop,
   type AutonomousLoopDeps,
+  type TimerHandle,
 } from "../src/agent/autonomous-loop";
 import {
   subscribe,
@@ -399,5 +400,67 @@ describe("autonomous loop — scheduling", () => {
     await timer.fire(); // second auto tick (rescheduled after first)
     loop.stop();
     expect(seen).toEqual(["A", "B"]);
+  });
+});
+
+describe("autonomous loop — per-tick identity", () => {
+  beforeEach(() => {
+    _resetBus();
+    _resetSpendGuard();
+  });
+
+  test("reads identity from singleton per-tick (adoption mid-stream)", async () => {
+    const { _setOwnerIdentityForTest, _resetOwnerIdentity } = await import(
+      "../src/agent/owner-identity"
+    );
+    _resetOwnerIdentity();
+
+    const ownerA = ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") as Hex;
+    const ownerB = ("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") as Hex;
+    const seenOwners: Hex[] = [];
+
+    _setOwnerIdentityForTest({
+      ownerAddress: ownerA,
+      userSignature: ("0x" + "11".repeat(65)) as Hex,
+      payloadKey: null,
+      source: "browser",
+    });
+
+    const deps: AutonomousLoopDeps = {
+      recall: async () => [hit("aa")],
+      act: async (opts: ActOptions) => {
+        seenOwners.push(opts.userPrimaryEOA);
+        return stubActResult(opts.citations);
+      },
+      setTimer: () => 0 as TimerHandle,
+      clearTimer: () => {},
+      random: () => 0,
+      now: () => 1_000_000,
+      readAllowanceWei: async () => 1_000_000_000_000_000_000n,
+      distill: async () => {},
+    };
+
+    const handle = startAutonomousLoop({
+      queryPool: ["q"],
+      userPrimaryEOA: ownerA,
+      initialDelayMs: 0,
+      _deps: deps,
+    });
+
+    await handle.interrupt("q1");
+
+    _setOwnerIdentityForTest({
+      ownerAddress: ownerB,
+      userSignature: ("0x" + "22".repeat(65)) as Hex,
+      payloadKey: null,
+      source: "browser",
+    });
+
+    await handle.interrupt("q2");
+    handle.stop();
+    _resetOwnerIdentity();
+
+    expect(seenOwners[0]?.toLowerCase()).toBe(ownerA.toLowerCase());
+    expect(seenOwners[1]?.toLowerCase()).toBe(ownerB.toLowerCase());
   });
 });

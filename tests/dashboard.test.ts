@@ -288,3 +288,38 @@ test("/api/auth/siwe/init issues nonce + ERC-4361 message", async () => {
   expect(body.message).toContain("URI: http://localhost:3000");
   expect(body.message).toContain("Chain ID: 60138453102");
 });
+
+test("POST /api/auth/adopt 401 without SIWE cookie", async () => {
+  const { handleAdoptRequest } = await import("../src/api/auth-adopt");
+  const req = new Request("http://localhost/api/auth/adopt", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      address: "0x" + "11".repeat(20),
+      signature: "0x" + "ab".repeat(65),
+    }),
+  });
+  const res = await handleAdoptRequest(req);
+  expect(res.status).toBe(401);
+});
+
+test("GET /api/auth/me returns source 'none' when nothing set", async () => {
+  const { _resetOwnerIdentity } = await import("../src/agent/owner-identity");
+  const savedUser = process.env.USER_PRIMARY_ADDRESS;
+  const savedSig = process.env.CORTEX_USER_SIGNATURE;
+  const savedPk = process.env.CORTEX_USER_PRIVATE_KEY;
+  delete process.env.USER_PRIMARY_ADDRESS;
+  delete process.env.CORTEX_USER_SIGNATURE;
+  delete process.env.CORTEX_USER_PRIVATE_KEY;
+  _resetOwnerIdentity();
+  const { handleAuthMe } = await import("../src/api/auth-adopt");
+  const res = await handleAuthMe(new Request("http://localhost/api/auth/me"));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ownerAddress: string | null; source: string };
+  expect(body.source).toBe("none");
+  expect(body.ownerAddress).toBeNull();
+  if (savedUser !== undefined) process.env.USER_PRIMARY_ADDRESS = savedUser;
+  if (savedSig !== undefined) process.env.CORTEX_USER_SIGNATURE = savedSig;
+  if (savedPk !== undefined) process.env.CORTEX_USER_PRIVATE_KEY = savedPk;
+  _resetOwnerIdentity();
+});

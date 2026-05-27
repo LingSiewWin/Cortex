@@ -172,3 +172,26 @@ test("payload key is null when no wallet material is present", async () => {
   _resetPayloadKey();
   expect(await getPayloadKey()).toBeNull();
 });
+
+test("singleton identity overrides env in payload-key", async () => {
+  const { _setOwnerIdentityForTest, _resetOwnerIdentity } = await import(
+    "../src/agent/owner-identity"
+  );
+
+  _resetPayloadKey();
+  _resetOwnerIdentity();
+
+  const sealedKey = await derivePayloadKey(SIG_B);
+  _setOwnerIdentityForTest({
+    ownerAddress: ("0x" + "ab".repeat(20)) as Hex,
+    userSignature: SIG_B,
+    payloadKey: sealedKey,
+    source: "browser",
+  });
+
+  const k = await getPayloadKey();
+  expect(k).toBe(sealedKey);
+
+  _resetOwnerIdentity();
+  _resetPayloadKey();
+});

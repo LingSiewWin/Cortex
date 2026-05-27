@@ -245,6 +245,7 @@ describe("events bus — bookkeeping", () => {
       "rabitq.encoded": true,
       "memory.created": true,
       "memory.cited": true,
+      "memory.evicted": true,
       "mmr.appended": true,
       "anchor.committed": true,
       "allowance.spent": true,
