@@ -1,0 +1,20 @@
+{
+  "name": "cortex",
+  "owner": {
+    "name": "Cortex",
+    "url": "https://github.com/LingSiewWin/Cortex"
+  },
+  "metadata": {
+    "description": "Sovereign, decay-aware memory for AI coding agents on Arkiv. Your sessions become a memory your agent owns.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "cortex-memory",
+      "source": "./cortex-plugin",
+      "description": "Every Claude Code session becomes a memory node: auto-captured before the context compacts and written to Arkiv (wallet-encrypted), recalled at session start so you never re-explain your project. Adds the cortex_recall / cortex_act / cortex_store_document / cortex_summarize_session MCP tools and a recall→cite→store working-agreement skill.",
+      "version": "0.1.0",
+      "keywords": ["memory", "arkiv", "recall", "sovereign", "agent-memory"]
+    }
+  ]
+}
