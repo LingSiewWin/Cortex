@@ -1,0 +1,4 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "mkdir -p public/assets && cp -f assets/landing-video.mp4 assets/landing-footer.png public/assets/ 2>/dev/null || true && next build"
+}

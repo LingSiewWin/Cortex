@@ -1,0 +1,34 @@
+node_modules
+.env
+.env.*
+
+# large binary / data files
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.pdf
+*.tar
+*.bin
+*.zip
+
+# research / docs / KB — assets/ is deliberately NOT ignored: the landing
+# build copies assets/landing-video.mp4 + assets/landing-footer.png into
+# dist/assets via vercel.json's buildCommand. Excluding it here would drop
+# those source files from the Vercel upload before the build can run.
+docs/
+scripts/eval/
+
+# plugin builds
+cortex-plugin/dist
+cortex-plugin/connect-dist
+
+# test artifacts
+.playwright-mcp/
+tests/fixtures/
+tmp/
+*.jsonl
+*.log
+
+# screenshots / pngs not used by the landing page
+cortex-*.png
+cortex-*.jpg
