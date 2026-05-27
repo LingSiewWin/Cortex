@@ -195,6 +195,12 @@ Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`.
 | **Faucet** | https://braga.hoodi.arkiv.network/faucet/ |
 | **RPC** | `https://braga.hoodi.arkiv.network/rpc` |
 
+### RaBitQ (embedding compression)
+
+Cortex stores **1-bit RaBitQ** codes (1536-d → ~198 B) for recall distance estimates. Implementation is in `src/compression/rabitq.ts` + `fht.ts` (TypeScript; not the NTU C++ library).
+
+**Citation (SIGMOD 2024):** Gao et al., *RaBitQ: Quantizing High-Dimensional Vectors with a Theoretical Error Bound*, [arXiv:2405.12497](https://arxiv.org/abs/2405.12497) · [RaBitQ-Library](https://github.com/VectorDB-NTU/RaBitQ-Library) (Apache-2.0). Deeper notes: [`docs/RabitQ.md`](./docs/RabitQ.md).
+
 ---
 
 ## License
