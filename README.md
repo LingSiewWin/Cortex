@@ -1,140 +1,200 @@
 # Cortex
 
-> **Darwinian memory for AI agents** — thoughts that earn the right to survive,
-> with a cryptographic proof they happened. Sovereign by construction.
-> _(AI + Privacy hybrid · Arkiv × ETHNS Builder Challenge)_
+> **Darwinian memory for AI agents** — observations that earn longer expiration when
+> cited; useless ones decay for free on Arkiv. Encrypted at rest with a key derived
+> from your wallet. _(AI + Privacy · Arkiv × ETHNS Builder Challenge)_
+
+**Live:** [cortex-arkiv.vercel.app](https://cortex-arkiv.vercel.app) — landing + console on **Arkiv Braga** testnet.
+
+**Repo:** [github.com/LingSiewWin/Cortex](https://github.com/LingSiewWin/Cortex)
+
+---
 
 ## What it does
 
-Every agent observation is RaBitQ-compressed (1536-d → 198 bytes, ~31×) and
-written to Arkiv with a one-hour starting expiration. When the agent **cites**
-a memory in a decision, Cortex extends its lifespan via accumulative `extend`.
-Useful memories grow toward years; useless ones expire for free via Arkiv's
-L1Block sync. Every decision also appends to a Merkle Mountain Range whose root
-is **anchored on Arkiv**, so any verifier can prove a memory was in the agent's
-history.
+| Layer | Behavior |
+|--------|----------|
+| **Write** | RaBitQ-compress embeddings (1536-d → ~198 B), seal payload with wallet-derived AES-256-GCM, `createEntity` on Braga with **1 h** starting expiration |
+| **Recall** | Hybrid search: Arkiv attributes + local mirror + RaBitQ distance — no vector DB |
+| **Reinforce** | Every `act(..., citations=[...])` fires **accumulative** `extend` (remaining lease + 24 h), so useful memories grow; stale ones evict via L1Block |
+| **Prove** | Merkle Mountain Range over decisions; roots **anchored on Arkiv** |
 
-Two tools, period: `recall(query, k)` and `act(action, citations[])`.
+Agent surface: **`recall(query, k)`** and **`act(action, citations[])`** only.
 
-### The live spine
+### Live console (`/console`)
 
-`/console` isn't a static dashboard reading a database. An autonomous agent
-runs in the server process and cites memories every ~20s; every Arkiv RPC call,
-every RaBitQ encode, every MMR append, and every state-root anchor publishes a
-typed event onto an SSE stream that the dashboard renders in real time. Load
-the page and watch the chain work — query → recall → reinforce → anchor — with
-live Braga tx links, or type your own query to drive a cycle manually.
+An autonomous loop (server session key) recalls and cites on a timer; each step emits typed events on **`/sse`**. The UI shows Braga tx links, topology graph, and manual query/cite. **File upload** uses your **browser wallet** on Braga (prepare on server → sign tx in MetaMask).
 
-## Sovereign by construction
-
-Memories are **encrypted at rest with a key derived from your wallet** — the chain
-*and* the local mirror hold ciphertext; plaintext exists only in RAM during a
-recall, gated by your wallet's signature (`derivePayloadKey` → AES-256-GCM, no key
-escrow). This resolves the **Sovereign Memory Trilemma** (sovereignty ↔
-verifiability ↔ performance/cost) by routing each memory to its corner: a
-local-first hot path for speed, selective MMR anchoring for verifiability, and
-wallet-encryption for sovereignty on a public ledger.
-
-The headline consequence — **memory survives the operator dying:**
-
-```bash
-bun scripts/sovereignty-proof.ts   # kill backend → wipe the entire mirror → rebuild
-                                   # from the PUBLIC Arkiv RPC with ONLY your wallet →
-                                   # recall survives & decrypts; without it, unreadable
-```
-
-Proven on Braga (2026-05-23): seal+write → wipe mirror → cold-rebuild → recall HIT
-with the wallet, MISS without it —
-[tx](https://explorer.braga.hoodi.arkiv.network/tx/0x6c391af1fa9f9faa952b793980e2b657b33d724298b15a4b7e5fc174543828a2).
-
-### OpenClaw-compatible adapter ([OpenClaw](https://github.com/openclaw/openclaw))
-
-Cortex exposes an **OpenClaw-compatible adapter interface** (`extensions/memory-arkiv/`)
-for OpenClaw's single active memory slot: `memory_store` → sealed write to Arkiv,
-`memory_recall` → decay-aware recall. The aim is to turn a local-only assistant's
-memory into a portable, verifiable, cross-device backend. **Honest status:** the
-adapter's tool surface is validated against Braga via `bun scripts/openclaw-harness.ts`
-([store tx](https://explorer.braga.hoodi.arkiv.network/tx/0xf3c20dd8607a67e6e40c932d94752935cb3662a43a07881a3e5c272c067c765b)),
-but it has **not yet been run inside a live OpenClaw gateway** — the plugin shell is
-spec-compliant and awaiting that integration.
+---
 
 ## Quick start
 
 ```bash
+git clone https://github.com/LingSiewWin/Cortex.git
+cd Cortex
 bun install
-cp .env.example .env       # SESSION_KEY_PRIVATE_KEY, USER_PRIMARY_ADDRESS,
-                           # + CORTEX_USER_SIGNATURE or CORTEX_USER_PRIVATE_KEY (sealing)
-
-bun run faucet-check       # pre-flight on Braga
-bun run seed               # seed demo memories the agent will cite
-bun run dashboard          # http://localhost:3000/console — watch the cascade
-bun run spine-check        # one-process proof: real Braga ops → live events
-bun run demo-flow          # scripted end-to-end demo
-bun scripts/sealed-e2e.ts          # encryption-at-rest round-trip (key vs no-key)
-bun scripts/sovereignty-proof.ts   # operator-death survival proof
+cp .env.example .env
 ```
 
-> Seed **before** starting the dashboard: the autonomous loop and the seed
-> script share one session-key EOA, so running them concurrently collides on
-> tx nonces.
+Fill `.env` (see [Environment](#environment)). Then:
+
+```bash
+bun run faucet-check    # session key has GLM on Braga
+bun run seed            # demo memories (run once, before the loop)
+bun run dev             # http://localhost:3000  →  /console
+```
+
+| Script | Purpose |
+|--------|---------|
+| `bun run dev` | Next.js dev server (landing + console + `/api/*`) |
+| `bun run dev:bun` | Legacy Bun HTML-import server (`src/ui-server.ts`) |
+| `bun run build` / `start` | Production Next.js |
+| `bun test` | Full test suite (353+ tests) |
+| `bun run smoke` | Single real Braga create + read |
+| `bun run mirror` | Standalone mirror replay daemon |
+| `bun run mcp` | Cortex MCP server (stdio) |
+| `bun run build:plugin` | Bundle Claude Code plugin to `cortex-plugin/dist/` |
+
+> Run **`seed` before** starting the loop — seed and the autonomous agent share one session-key EOA; parallel writes collide on nonce.
+
+---
+
+## Environment
+
+| Variable | Required | Role |
+|----------|----------|------|
+| `SESSION_KEY_PRIVATE_KEY` | Writes / loop | `$creator` session-key EOA (fund via [faucet](https://braga.hoodi.arkiv.network/faucet/)) |
+| `USER_PRIMARY_ADDRESS` | Ownership | `$owner` primary EOA |
+| `CORTEX_USER_SIGNATURE` or `CORTEX_USER_PRIVATE_KEY` | Sealed recall | Wallet-derived payload key (see `bun scripts/derive-user-signature.ts`) |
+| `OPENROUTER_API_KEY` or `COHERE_API_KEY` | Embeddings | 1536-d vectors for RaBitQ (upload + recall) |
+| `ANTHROPIC_API_KEY` | Optional | Semantic distillation |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Optional | Reown AppKit modal; omit → injected MetaMask only |
+| `NEXT_PUBLIC_BRAGA_RPC` | Optional | Default: Braga HTTP RPC from `src/constants.ts` |
+| `CORTEX_MIRROR_PATH` | Optional | SQLite mirror path (default `./cortex-mirror.sqlite`) |
+
+Never commit `.env`. See `.env.example` for the full list.
+
+---
+
+## Architecture
+
+```
+Browser (AppKit + wagmi)
+  ├─ Connect / switch to Braga
+  ├─ Sign key-derivation (adopt)
+  └─ mutateEntities (upload) ──► Arkiv precompile on Braga
+
+Next.js (app/)
+  ├─ /api/*  → src/server/dispatch.ts → handlers in src/api/, src/ui-server.ts
+  ├─ /sse    → live agent + mirror events
+  └─ Workers → mirror init, optional autonomous loop (skipped on Vercel by default)
+
+SQLite mirror (src/mirror/)
+  ├─ bun:sqlite (Bun) or better-sqlite3 (Next.js Node)
+  ├─ Replay daemon + MMR + anchor worker + evict watcher
+  └─ Cold rebuild from public Arkiv RPC (sovereignty proof)
+```
+
+**Ownership:** `$creator` = session key (attribution); `$owner` = your wallet (extend/update/delete). Reads filter by creator + `project=cortex-ethns-2026`.
+
+**Extend math:** `newBtl = remaining + reinforcement` (strict increase — naïve `+24h` reverts when remaining > 24 h).
+
+---
 
 ## Stack
 
-- Runtime: Bun + TypeScript
-- Network: Arkiv Braga testnet (chainId `60138453102`)
-- Compression: RaBitQ 1-bit quantizer @ 1536-d
-- Identity: EIP-712 session keys + SIWE
-- Mirror: `bun:sqlite`, replayable via ERC-5169 `scriptURI`
+- **Web:** Next.js 15 (App Router), React 19, Reown AppKit, wagmi, viem
+- **Runtime:** Bun (tests, scripts, plugin); Node on Vercel (API + `better-sqlite3`)
+- **Chain:** Arkiv Braga — chainId `60138453102`, SDK `@arkiv-network/sdk` ^0.6.8
+- **Compression:** RaBitQ @ 1536-d
+- **Identity:** EIP-712 session auth, SIWE, ERC-5267 domain, browser-signed Braga writes
 
-## Repo map (where to look when something breaks)
+---
 
-| Path | What lives here |
-|---|---|
-| `src/lib/` | Arkiv client, crypto, identity (SIWE/EIP-712/session keys). Start here if a write fails. |
-| `src/compression/` | RaBitQ quantizer + embedding pipeline. Start here if recall returns nonsense. |
-| `src/darwinian/` | `extend` (accumulative reinforcement), `recall`, `citation`, `distill`. |
-| `src/mirror/` | Local `bun:sqlite` shadow + MMR + anchor + replay daemon. |
-| `src/market/` | Synaptic Market — publish, grant decrypt, seeded buyer/seller/amnesic agents. |
-| `src/api/`, `src/ui-server.ts`, `ui/` | Dashboard backend + React frontend. |
-| `contracts/` | `CortexRegistry.sol` (ERC-5169 `scriptURI`), `SynapticMarket.sol` (escrow). |
-| `scripts/` | `faucet-check`, `demo-flow`, `backfill`, `mmr-bench`. |
-| `tests/` | Offline suite + `canary-atblock` (deliberately failing) + `smoke` (real Braga tx). |
+## Repo map
+
+| Path | Contents |
+|------|----------|
+| `app/` | Next.js routes: `/`, `/console`, `/api/[[...path]]`, `/sse` |
+| `lib/web/` | AppKit providers, connect gate, browser upload hook |
+| `ui/` | Landing, console, MemoryGraph, demo components |
+| `src/lib/` | Arkiv client, crypto, sealing, Braga preflight |
+| `src/compression/` | RaBitQ + embeddings + document payloads |
+| `src/darwinian/` | extend, recall, citation, distill |
+| `src/mirror/` | SQLite schema, replay, MMR, anchor, evict watcher |
+| `src/topology/` | Graph builder for `/api/topology` |
+| `src/api/` | HTTP handlers (auth, store-file, seed, …) |
+| `src/agent/` | Autonomous loop, anchor worker |
+| `src/mcp/` | MCP server for agent tooling |
+| `src/obsidian/` | Vault → mirror sync |
+| `cortex-plugin/` | Claude Code plugin (hooks, MCP, skills) |
+| `scripts/` | seed, demo-flow, sovereignty-proof, plugin build |
+| `tests/` | Offline + smoke/canary against Braga |
+| `contracts/` | `CortexRegistry.sol`, `SynapticMarket.sol` |
+
+---
+
+## Claude Code plugin
+
+Install from `cortex-plugin/` (after `bun run build:plugin`):
+
+- **Hooks:** capture before compaction, recall at session start
+- **MCP:** Cortex memory tools on stdio
+- **Skill:** `cortex-memory` usage patterns
+
+Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`.
+
+---
+
+## Deploy (Vercel)
+
+```bash
+bun run build
+```
+
+Set env vars in the Vercel project (same as local). `vercel.json` uses `framework: nextjs`. Landing assets are copied from `assets/` into `public/assets/` at build time.
+
+Background workers (`CORTEX_AUTONOMOUS_LOOP`, anchor drain, evict watcher) are **off** on Vercel unless `CORTEX_START_WORKERS=1`. The demo UI and browser-signed uploads still work.
+
+---
+
+## Sovereignty proof
+
+```bash
+bun scripts/sovereignty-proof.ts
+```
+
+Kill backend → wipe local mirror → rebuild from **public** Arkiv RPC with **only** your wallet → recall decrypts; without the wallet, ciphertext stays unreadable.
+
+Example Braga round-trip: [explorer tx](https://explorer.braga.hoodi.arkiv.network/tx/0x6c391af1fa9f9faa952b793980e2b657b33d724298b15a4b7e5fc174543828a2).
+
+---
 
 ## Troubleshooting
 
-| Symptom | What it means |
-|---|---|
-| `embedText: OPENAI_API_KEY is not set` | Add it to `.env` or swap providers in `src/compression/embeddings.ts`. |
-| Faucet rejects "enter valid eth address" | You pasted the **private** key. Derive the address: `bun -e "import('viem/accounts').then(m => console.log(m.privateKeyToAccount(process.env.SESSION_KEY_PRIVATE_KEY).address))"` |
-| `extend reverted: newBtl <= currentBtl` | The accumulative-extend math is being bypassed. See `src/darwinian/extend.ts` — `newBtl = remaining + reinforcement` must be strictly greater. |
-| Smoke test hangs on write | Balance is 0. Run `bun run faucet-check`, then top up the session-key address at the faucet. |
-| Canary **passes** (instead of failing) | Arkiv shipped the `atBlock` fix. Drop the SQLite cold-tier path. |
-| Explorer link 404s for a fresh tx | Braga RPC lag — wait a block (~2s) and retry. |
+| Symptom | Fix |
+|---------|-----|
+| Upload stuck on “Storing…” | Switch wallet to Braga; fund GLM ([faucet](https://braga.hoodi.arkiv.network/faucet/)); check `OPENROUTER_API_KEY` / `COHERE_API_KEY` |
+| `embedText: … API key` | Set embedding provider in `.env` |
+| `extend reverted: newBtl <= currentBtl` | Use accumulative extend in `src/darwinian/extend.ts` |
+| Stuck nonce on Braga | Cancel/speed up pending tx in wallet |
+| Smoke test hangs | `bun run faucet-check`; fund session key |
+| API 500 on Vercel | Mirror/workers need SQLite — use local `bun run dev` for full loop demo |
 
-Useful links:
+**Braga links**
 
 - Explorer: https://explorer.braga.hoodi.arkiv.network/
-- Faucet:   https://braga.hoodi.arkiv.network/faucet/
-- RPC:      `https://braga.hoodi.arkiv.network/rpc`
+- Faucet: https://braga.hoodi.arkiv.network/faucet/
+- RPC: `https://braga.hoodi.arkiv.network/rpc`
 
-## Security notes (read before a public deploy)
+---
 
-The dashboard's write/control endpoints (`/api/citation/manual`, `/api/loop/control`)
-are **unauthenticated** for a frictionless local demo. They are gated by a
-process-scoped spend guard (`src/agent/spend-guard.ts`): a session cap +
-per-IP rate limit, shared by the autonomous loop and the manual path. The SSE
-endpoint caps concurrent connections (global + per-IP). Queries are clamped and
-control-stripped before being embedded / broadcast / written on-chain.
+## Security (public demo)
 
-For a **public deployment** (e.g. a judge URL), additionally:
-- Gate the write/control endpoints behind the existing SIWE viewer-session
-  cookie (the 6-ERC identity stack is already built — reuse `cortex_session`).
-- Fund the session key with a **minimal float** (e.g. 0.05 GLM) and never
-  auto-refill from a hot faucet — the spend cap resets on process restart.
+`/api/citation/manual` and `/api/loop/control` are **unauthenticated** for local demos (spend guard + rate limits only). For a public URL, gate writes behind the SIWE `cortex_session` cookie and cap session-key funding.
 
-The autonomous loop runs server-side, so the ambient cascade demo works without
-any auth; only interactive writes need it.
+---
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](./LICENSE).
