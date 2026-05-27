@@ -27,18 +27,24 @@ export async function ensureMirrorDb(): Promise<void> {
   await initMirrorDb();
 }
 
+/** True when this process should open the SQLite mirror (not on default Vercel serverless). */
+export function isMirrorEnabled(): boolean {
+  if (process.env.CORTEX_MIRROR === "off") return false;
+  if (process.env.VERCEL === "1" && process.env.CORTEX_START_WORKERS !== "1") {
+    return false;
+  }
+  return true;
+}
+
 /** Start background workers once. No-op on Vercel unless CORTEX_START_WORKERS=1. */
 export async function startCortexWorkers(): Promise<void> {
   if (_started) return;
   if (process.env.NEXT_PHASE === "phase-production-build") return;
   _started = true;
 
-  await ensureMirrorDb();
+  if (!isMirrorEnabled()) return;
 
-  const onVercel = process.env.VERCEL === "1";
-  if (onVercel && process.env.CORTEX_START_WORKERS !== "1") {
-    return;
-  }
+  await ensureMirrorDb();
 
   if (process.env.CORTEX_AUTONOMOUS_LOOP !== "off") {
     try {

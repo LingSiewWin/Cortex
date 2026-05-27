@@ -858,8 +858,28 @@ const ESTIMATED_GAS_PRICE_WEI = 1_000_000_000n;
 /** Arkiv's flat ~29k gas per CREATE (per docs/Arkiv.md §1.4). */
 const APPROX_CREATE_GAS = 29_000;
 
+function staticEconomicsPayload() {
+  return {
+    entityCount: 0,
+    totalGasUnits: 0,
+    totalGasCostWei: "0",
+    avgGasPerMemory: APPROX_CREATE_GAS,
+    rawBytesEstimate: 0,
+    storedBytesEstimate: 0,
+    compressionRatio: COMPRESSION_RATIO,
+    uncompressedGasCostWei: "0",
+    monthlyProjectionWei: "0",
+    source: "static" as const,
+  };
+}
+
 export async function handleEconomicsRequest(_req: Request): Promise<Response> {
-  const db = await initMirrorDb();
+  let db;
+  try {
+    db = await initMirrorDb();
+  } catch {
+    return json(staticEconomicsPayload());
+  }
 
   const entityCountRow = db
     .prepare("SELECT COUNT(*) as c FROM entities")
@@ -908,7 +928,12 @@ export async function handleEconomicsRequest(_req: Request): Promise<Response> {
 }
 
 export async function handleDecayRequest(_req: Request): Promise<Response> {
-  const db = await initMirrorDb();
+  let db;
+  try {
+    db = await initMirrorDb();
+  } catch {
+    return json({ events: [] });
+  }
 
   const rows = db
     .prepare(

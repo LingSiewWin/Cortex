@@ -23,6 +23,14 @@ import schemaSql from "./schema.sql" with { type: "text" };
 
 const DEFAULT_MIRROR_PATH = "./cortex-mirror.sqlite";
 
+function resolveMirrorPath(path?: string): string {
+  if (path) return path;
+  if (process.env.CORTEX_MIRROR_PATH) return process.env.CORTEX_MIRROR_PATH;
+  // Vercel serverless FS is read-only except /tmp
+  if (process.env.VERCEL === "1") return "/tmp/cortex-mirror.sqlite";
+  return DEFAULT_MIRROR_PATH;
+}
+
 export type Database = MirrorDatabase;
 
 let _db: MirrorDatabase | undefined;
@@ -33,7 +41,7 @@ let _db: MirrorDatabase | undefined;
  */
 export async function initMirrorDb(path?: string): Promise<MirrorDatabase> {
   if (_db) return _db;
-  const resolved = path ?? process.env.CORTEX_MIRROR_PATH ?? DEFAULT_MIRROR_PATH;
+  const resolved = resolveMirrorPath(path);
   const db = await openMirrorDatabase(resolved);
   // Apply pragmas BEFORE schema DDL — pragmas need to run on every fresh
   // connection (some are connection-scoped, like busy_timeout). The schema
