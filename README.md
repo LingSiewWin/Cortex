@@ -167,7 +167,7 @@ sequenceDiagram
 
 ## Claude Code plugin
 
-![Cortex MCP server and OpenClaw plugin — install strip on the console](./assets/plug-in.png)
+![Cortex console — wallet upload and MCP / OpenClaw integrate panel](./assets/plug-in.png)
 
 Install from `cortex-plugin/` (after `bun run build:plugin`):
 
