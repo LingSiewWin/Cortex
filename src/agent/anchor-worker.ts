@@ -24,7 +24,7 @@
  * the first call so nothing partial lands. (A per-step journal is V2.)
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "../mirror/db";
 import type { Hex } from "@arkiv-network/sdk";
 import { ExpirationTime } from "@arkiv-network/sdk/utils";
 import { hexToBytes } from "viem";

@@ -28,7 +28,7 @@
  * are the source of truth for tier promotions, the Arkiv lifespan for "alive?".
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "../mirror/db";
 import type { Hex } from "@arkiv-network/sdk";
 import { jsonToPayload } from "@arkiv-network/sdk/utils";
 import { keccak256, bytesToHex } from "viem";

@@ -14,7 +14,7 @@
  * historical Cortex entities into the mirror.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db";
 import type { Hex } from "@arkiv-network/sdk";
 import { parseAbi, decodeEventLog, toHex, keccak256, bytesToHex } from "viem";
 import { getPublicClient } from "../lib/arkiv-client";

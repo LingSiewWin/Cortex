@@ -14,7 +14,7 @@
  * replay wins — that's the sovereignty story made concrete.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db";
 import type { Hex } from "@arkiv-network/sdk";
 import { initMirrorDb, decodeAttributes, type EntityRow, type EventRow } from "./db";
 

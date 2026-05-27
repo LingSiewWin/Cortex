@@ -35,7 +35,7 @@ import {
 } from "viem";
 import { eq } from "@arkiv-network/sdk/query";
 import type { WalletArkivClient } from "@arkiv-network/sdk";
-import type { Database } from "bun:sqlite";
+import type { Database } from "../mirror/db";
 import { openPayload } from "../lib/crypto";
 import { singleCreate } from "../lib/batch-writer";
 import {

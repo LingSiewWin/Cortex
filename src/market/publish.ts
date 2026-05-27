@@ -23,7 +23,7 @@
 
 import type { Hex } from "@arkiv-network/sdk";
 import type { Attribute } from "@arkiv-network/sdk/types";
-import type { Database } from "bun:sqlite";
+import type { Database } from "../mirror/db";
 import { sealPayload } from "../lib/crypto";
 import { singleCreate } from "../lib/batch-writer";
 import { getSessionKeyAddress } from "../lib/arkiv-client";

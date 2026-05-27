@@ -1,11 +1,10 @@
 /**
- * Cortex — bun:sqlite mirror database.
+ * Cortex — SQLite mirror database (Bun or Node driver).
  *
  * Single connection per process. Schema loaded from schema.sql on first open.
  * Safe to call initMirrorDb() multiple times — returns the same instance.
  */
 
-import { Database } from "bun:sqlite";
 import { bytesToHex, keccak256 } from "viem";
 import type { Hex } from "@arkiv-network/sdk";
 import type { Attribute } from "@arkiv-network/sdk/types";
@@ -14,20 +13,28 @@ import {
 } from "../lib/session-key";
 import type { SessionAuthorizationV2 } from "../lib/eip712";
 import { normaliseAddress } from "../lib/arkiv-client";
+import { openMirrorDatabase, type MirrorDatabase } from "./sqlite-adapter";
+// Inline the DDL as text so the schema travels WITH the code — both at runtime
+// and (critically) when `bun build` bundles this module into the standalone
+// plugin. The old `Bun.file("./schema.sql")` read broke once bundled: the .sql
+// asset wasn't next to the bundle, so a plugin running outside the repo failed
+// with ENOENT. `with { type: "text" }` is inlined by the bundler.
+import schemaSql from "./schema.sql" with { type: "text" };
 
 const DEFAULT_MIRROR_PATH = "./cortex-mirror.sqlite";
-const SCHEMA_URL = new URL("./schema.sql", import.meta.url);
 
-let _db: Database | undefined;
+export type Database = MirrorDatabase;
+
+let _db: MirrorDatabase | undefined;
 
 /**
  * Open (or create) the SQLite mirror and apply schema.sql. Idempotent — subsequent
  * calls return the cached connection. Must be awaited before any query.
  */
-export async function initMirrorDb(path?: string): Promise<Database> {
+export async function initMirrorDb(path?: string): Promise<MirrorDatabase> {
   if (_db) return _db;
   const resolved = path ?? process.env.CORTEX_MIRROR_PATH ?? DEFAULT_MIRROR_PATH;
-  const db = new Database(resolved, { create: true });
+  const db = await openMirrorDatabase(resolved);
   // Apply pragmas BEFORE schema DDL — pragmas need to run on every fresh
   // connection (some are connection-scoped, like busy_timeout). The schema
   // file repeats them as documentation, but bun:sqlite's `exec()` applies them
@@ -37,8 +44,7 @@ export async function initMirrorDb(path?: string): Promise<Database> {
   db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA synchronous = NORMAL;");
   db.exec("PRAGMA foreign_keys = ON;");
-  const ddl = await Bun.file(SCHEMA_URL).text();
-  db.exec(ddl);
+  db.exec(schemaSql);
   // Phase 12 migration — add payload_hash column to existing entities tables
   // that predate the schema change, then backfill any rows that have a
   // payload but no hash. SQLite ALTER TABLE ADD COLUMN has no IF NOT EXISTS,
