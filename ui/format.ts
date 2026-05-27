@@ -44,14 +44,23 @@ export function formatGlm(weiString: string): string {
     : `${whole.toString()} GLM`;
 }
 
+/**
+ * Human-facing label for a lease-decay tier. Internal/on-chain identifiers stay
+ * stable ("working"/"episodic"/"rule" tier names, observation/episode/rule
+ * entityTypes) — these labels are the ONLY thing a human/judge reads, and they
+ * tell the survival story: a memory is captured Fresh (short lease), becomes
+ * Reinforced when the agent cites it, and graduates to Core when proven. "Core"
+ * is durable-but-finite — never "Permanent" (Arkiv has no forever; max lease is
+ * ~272y by uint32 ceiling and we deliberately cap far below that).
+ */
 export function tierLabel(tier: string): string {
   switch (tier) {
     case "working":
-      return "Working";
+      return "Fresh";
     case "episodic":
-      return "Episodic";
+      return "Reinforced";
     case "rule":
-      return "Rule";
+      return "Core";
     default:
       return "Other";
   }

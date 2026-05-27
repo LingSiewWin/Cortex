@@ -10,12 +10,12 @@
  */
 
 interface Props {
-  mode: "ambient" | "dev";
-  onToggle: (next: "ambient" | "dev") => void;
+  mode: "demo" | "dev";
+  onToggle: (next: "demo" | "dev") => void;
 }
 
 export function DevModeToggle({ mode, onToggle }: Props) {
-  const next = mode === "ambient" ? "dev" : "ambient";
+  const next = mode === "demo" ? "dev" : "demo";
   const isDev = mode === "dev";
   return (
     <div className="devmode-toggle">
@@ -29,7 +29,7 @@ export function DevModeToggle({ mode, onToggle }: Props) {
         <span className="devmode-toggle-knob" />
       </button>
       <span className="devmode-toggle-label mono">
-        {isDev ? "DEV" : "AMBIENT"}
+        {isDev ? "DEV" : "DEMO"}
       </span>
     </div>
   );

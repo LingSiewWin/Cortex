@@ -4,7 +4,7 @@
  * Replaces the Memory Lifespan health-bar list with a thermodynamic
  * visualization. The constellation reads as memory consolidation flowing
  * from hot (orange, fast-decaying working memories) at the top zone, to
- * promoted episodes in the middle, and frozen rules (blue) at the bottom.
+ * promoted episodes in the middle, and frozen rules (white) at the bottom.
  *
  * Each dot is a memory:
  *   - Position is deterministic from a hash of the entityKey (so dots don't
@@ -26,6 +26,8 @@ import { useSSE } from "../hooks/useSSE";
 
 /** How long a dot keeps its "just cited" glow after a memory.cited event. */
 const CITE_GLOW_MS = 2500;
+/** How long the "fades, then drops" eviction animation runs before the dot is removed. */
+const DROP_ANIM_MS = 1600;
 
 interface Props {
   memories: MemorySummary[];
@@ -56,7 +58,7 @@ interface ZoneSpec {
 const ZONES: ZoneSpec[] = [
   {
     tier: "working",
-    label: "WORKING · 1h",
+    label: "FRESH · short lease",
     top: 4,
     height: 30,
     color: "#ff5a00",
@@ -65,7 +67,7 @@ const ZONES: ZoneSpec[] = [
   },
   {
     tier: "episodic",
-    label: "EPISODIC · 7d",
+    label: "REINFORCED · cited, growing",
     top: 36,
     height: 30,
     color: "#ff8533",
@@ -74,11 +76,11 @@ const ZONES: ZoneSpec[] = [
   },
   {
     tier: "rule",
-    label: "RULE · 1y",
+    label: "CORE · long-lived",
     top: 68,
     height: 28,
-    color: "#0055ff",
-    glowColor: "rgba(0, 85, 255, 0.65)",
+    color: "#c9cdd8",
+    glowColor: "rgba(201, 205, 216, 0.6)",
     size: 22,
   },
 ];
@@ -182,6 +184,25 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citedEvents, force]);
 
+  // Live eviction: when a memory's lease elapses, memory.evicted fires. We play
+  // the "fades, then drops" animation for DROP_ANIM_MS, then keep the key in
+  // `gone` so the dot stays removed even if a stale poll still lists it. This is
+  // the Darwinian payoff a judge watches happen in real time.
+  const evictedEvents = useSSE(["memory.evicted"]);
+  const { evicting, gone } = useMemo(() => {
+    const now = Date.now();
+    const evicting = new Set<string>();
+    const gone = new Set<string>();
+    for (const ev of evictedEvents) {
+      if (ev.event.type !== "memory.evicted") continue;
+      if (now - ev.event.ts < DROP_ANIM_MS) evicting.add(ev.event.entityKey);
+      else gone.add(ev.event.entityKey);
+    }
+    return { evicting, gone };
+    // force re-runs this on the ticker so evicting → gone transitions on time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evictedEvents, force]);
+
   if (memories.length === 0) {
     return (
       <div className="section">
@@ -198,16 +219,20 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
   }
 
   // Layout rail: leave 14% on the left for the zone label, 4% right padding.
-  const dots = memories.map((m) => placeDot(m, { x: [16, 96] }));
+  // Drop fully-evicted dots from the render (even if a stale poll still lists
+  // them) so the graveyard doesn't pile up after the fall animation.
+  const dots = memories
+    .filter((m) => !gone.has(m.entityKey))
+    .map((m) => placeDot(m, { x: [16, 96] }));
 
   return (
     <div className="section">
       <div className="section-title">Memory constellation</div>
       <div className="section-hint">
-        Each dot is a memory living on the chain. Color is its tier (orange
-        working → episodic → blue rule); a memory grows bigger the more your
-        agent cites it, and fades as it nears expiry. Cite it and it survives;
-        ignore it and it decays for free.
+        Each dot is a memory living on the chain. Color is its tier (ember
+        Fresh → Reinforced → frozen-white Core); a memory grows bigger the more
+        your agent cites it, and fades as it nears expiry. Cite it and it
+        survives; ignore it and it decays for free.
       </div>
       <div className="card constellation-card">
         <div className="constellation">
@@ -223,11 +248,12 @@ export function MemoryConstellation({ memories, onInspect }: Props) {
           {dots.map((d) => {
             const isHover = hoverKey === d.memory.entityKey;
             const isCited = recentlyCited.has(d.memory.entityKey);
+            const isEvicting = evicting.has(d.memory.entityKey);
             const scale = isHover ? 1.4 : isCited ? 1.3 : 1;
             return (
               <div
                 key={d.memory.entityKey}
-                className={`constellation-dot${isCited ? " constellation-dot-cited" : ""}`}
+                className={`constellation-dot${isCited ? " constellation-dot-cited" : ""}${isEvicting ? " constellation-dot-evicting" : ""}`}
                 style={{
                   left: `${d.leftPct}%`,
                   top: `${d.topPct}%`,

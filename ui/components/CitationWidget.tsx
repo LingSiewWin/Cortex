@@ -36,7 +36,13 @@ interface ManualResult {
   error?: string;
 }
 
-export function CitationWidget() {
+interface CitationWidgetProps {
+  /** Compact layout for demo mode — hides phase track, renames labels. */
+  variant?: "full" | "compact";
+}
+
+export function CitationWidget({ variant = "full" }: CitationWidgetProps) {
+  const compact = variant === "compact";
   // Spine events driving the live phase + current query.
   const cycle = useSSE([
     "agent.loop.tick",
@@ -201,51 +207,59 @@ export function CitationWidget() {
         </button>
       </div>
 
-      {/* Phase track */}
-      <div className="cw-phases" role="status" aria-label={`phase: ${PHASE_LABEL[phase]}`}>
-        {PHASE_ORDER.map((p) => {
-          const activeIdx = PHASE_ORDER.indexOf(phase);
-          const thisIdx = PHASE_ORDER.indexOf(p);
-          const state =
-            phase === "idle"
-              ? "pending"
-              : thisIdx < activeIdx
-                ? "done"
-                : thisIdx === activeIdx
-                  ? "active"
-                  : "pending";
-          return (
-            <div key={p} className={`cw-phase cw-phase-${state}`}>
-              <span className="cw-phase-tick" aria-hidden />
-              <span className="cw-phase-label">{PHASE_LABEL[p]}</span>
+      {!compact ? (
+        <>
+          <div className="cw-phases" role="status" aria-label={`phase: ${PHASE_LABEL[phase]}`}>
+            {PHASE_ORDER.map((p) => {
+              const activeIdx = PHASE_ORDER.indexOf(phase);
+              const thisIdx = PHASE_ORDER.indexOf(p);
+              const state =
+                phase === "idle"
+                  ? "pending"
+                  : thisIdx < activeIdx
+                    ? "done"
+                    : thisIdx === activeIdx
+                      ? "active"
+                      : "pending";
+              return (
+                <div key={p} className={`cw-phase cw-phase-${state}`}>
+                  <span className="cw-phase-tick" aria-hidden />
+                  <span className="cw-phase-label">{PHASE_LABEL[p]}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="cw-thought">
+            <span className="cw-thought-label">thinking about</span>
+            <span className="cw-thought-query">
+              {currentQuery || "— waiting for next decision —"}
+            </span>
+          </div>
+
+          {lastAnchorTx ? (
+            <div className="cw-anchor mono">
+              state anchored ·{" "}
+              <a href={`${EXPLORER}/tx/${lastAnchorTx}`} target="_blank" rel="noreferrer">
+                {lastAnchorTx.slice(0, 10)}…
+              </a>
             </div>
-          );
-        })}
-      </div>
+          ) : null}
 
-      {/* Current thought */}
-      <div className="cw-thought">
-        <span className="cw-thought-label">thinking about</span>
-        <span className="cw-thought-query">
-          {currentQuery || "— waiting for next decision —"}
-        </span>
-      </div>
-
-      {lastAnchorTx ? (
-        <div className="cw-anchor mono">
-          state anchored ·{" "}
-          <a href={`${EXPLORER}/tx/${lastAnchorTx}`} target="_blank" rel="noreferrer">
-            {lastAnchorTx.slice(0, 10)}…
-          </a>
+          {lastSpentRemaining !== null ? (
+            <div className="cw-allowance mono">
+              allowance remaining ≈ {formatGlm(lastSpentRemaining)}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="cw-thought cw-thought-compact">
+          <span className="cw-thought-label">Last recall</span>
+          <span className="cw-thought-query">
+            {currentQuery || "— waiting for agent —"}
+          </span>
         </div>
-      ) : null}
-
-      {/* Allowance strip */}
-      {lastSpentRemaining !== null ? (
-        <div className="cw-allowance mono">
-          allowance remaining ≈ {formatGlm(lastSpentRemaining)}
-        </div>
-      ) : null}
+      )}
 
       {/* Manual override */}
       <div className="cw-manual">

@@ -4,27 +4,27 @@
  * Phase 15: Apple-tier dark theme with thermodynamic memory metaphor
  * (orange = hot working/episodic, blue = cold rules + anchors).
  *
- * Ambient mode (default) is the narrative surface — hero anchor pulse,
- * memory constellation, decision timeline, allowance, market.
- *
- * Dev mode appends the diagnostic surfaces — trilemma scoreboard, hero
- * stat grid, RaBitQ + Proof playgrounds, recently evicted, raw memory
- * lifespan health bars.
+ * Demo mode (default): graph-first layout for judges — MemoryGraph hero,
+ * compact agent bar, install strip. Dev mode (?dev=1): full diagnostics +
+ * developer hub sidebar.
  *
  * The agent is a background process; this page reads the SQLite mirror
  * via the JSON API in src/ui-server.ts and surfaces live state.
  */
 
-import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
-import { createRoot } from "react-dom/client";
-import { WalletConnect } from "./components/WalletConnect";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ConnectGate } from "@/lib/web/components/ConnectGate";
+import { WalletHeader } from "@/lib/web/components/WalletHeader";
 import { StatCard } from "./components/StatCard";
 import { MemoryHealthBar } from "./components/MemoryHealthBar";
-import { ListingCard } from "./components/ListingCard";
+import { DeveloperHub } from "./components/DeveloperHub";
 import { RaBitQPlayground } from "./components/RaBitQPlayground";
 import { AllowanceCard } from "./components/AllowanceCard";
 import { ProofPlayground } from "./components/ProofPlayground";
-import { MemoryConstellation } from "./components/MemoryConstellation";
+import { DemoHero } from "./components/DemoHero";
+import { DemoInstallStrip } from "./components/DemoInstallStrip";
+import { DemoUpload } from "./components/DemoUpload";
+import MemoryGraph from "./components/MemoryGraph/MemoryGraph";
 import { DecisionTimeline } from "./components/DecisionTimeline";
 import { DevModeToggle } from "./components/DevModeToggle";
 import { CitationWidget } from "./components/CitationWidget";
@@ -32,11 +32,11 @@ import { AnchorPill } from "./components/AnchorPill";
 import { RPCTicker } from "./components/RPCTicker";
 import { RaBitQTile } from "./components/RaBitQTile";
 import { MMRTreePanel } from "./components/MMRTreePanel";
+import CortexFooter from "./components/CortexFooter";
 import { formatGlm, truncateAddress } from "./format";
 import type {
   DecisionsResponse,
   Hex,
-  ListingsResponse,
   MemoriesResponse,
   MemoryDetailResponse,
   MemorySummary,
@@ -45,7 +45,7 @@ import type {
 const REFRESH_INTERVAL_MS = 4_000;
 const MODE_STORAGE_KEY = "cortex_console_mode";
 
-type ConsoleMode = "ambient" | "dev";
+type ConsoleMode = "demo" | "dev";
 
 interface EconomicsResponse {
   entityCount: number;
@@ -72,7 +72,6 @@ interface DecayResponse {
 interface DashboardData {
   memories: MemoriesResponse | null;
   decisions: DecisionsResponse | null;
-  listings: ListingsResponse | null;
   economics: EconomicsResponse | null;
   decay: DecayResponse | null;
   loadedAtMs: number | null;
@@ -82,26 +81,24 @@ interface DashboardData {
 const EMPTY: DashboardData = {
   memories: null,
   decisions: null,
-  listings: null,
   economics: null,
   decay: null,
   loadedAtMs: null,
   error: null,
 };
 
-async function loadAll(): Promise<DashboardData> {
+async function loadAll(owner: Hex | null): Promise<DashboardData> {
+  const ownerQs = owner ? `?owner=${encodeURIComponent(owner)}` : "";
   try {
-    const [m, d, l, e, dc] = await Promise.all([
-      fetch("/api/memories").then((r) => r.json()),
+    const [m, d, e, dc] = await Promise.all([
+      fetch(`/api/memories${ownerQs}`).then((r) => r.json()),
       fetch("/api/decisions").then((r) => r.json()),
-      fetch("/api/listings").then((r) => r.json()),
       fetch("/api/economics").then((r) => r.json()),
       fetch("/api/decay").then((r) => r.json()),
     ]);
     return {
       memories: m as MemoriesResponse,
       decisions: d as DecisionsResponse,
-      listings: l as ListingsResponse,
       economics: e as EconomicsResponse,
       decay: dc as DecayResponse,
       loadedAtMs: Date.now(),
@@ -123,37 +120,71 @@ function formatBytes(n: number): string {
 }
 
 function readInitialMode(): ConsoleMode {
-  if (typeof window === "undefined") return "ambient";
+  if (typeof window === "undefined") return "demo";
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("dev") === "1") return "dev";
+  } catch {
+    /* ignore */
+  }
   try {
     const v = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (v === "dev" || v === "ambient") return v;
+    if (v === "dev" || v === "ambient") return "dev";
+    if (v === "demo") return "demo";
   } catch {
     /* localStorage disabled — fall through */
   }
-  return "ambient";
+  return "demo";
 }
 
-function App() {
+function ConsoleApp() {
   const [data, setData] = useState<DashboardData>(EMPTY);
   const [inspected, setInspected] = useState<MemoryDetailResponse | null>(null);
   const [inspectErr, setInspectErr] = useState<string | null>(null);
   const [mode, setMode] = useState<ConsoleMode>(() => readInitialMode());
+  const [effectiveOwner, setEffectiveOwner] = useState<Hex | null>(null);
 
   const onToggleMode = useCallback((next: ConsoleMode) => {
-    setMode(next);
     try {
       window.localStorage.setItem(MODE_STORAGE_KEY, next);
     } catch {
       /* ignore */
     }
+    window.location.href = next === "dev" ? "/console?dev=1" : "/console";
   }, []);
 
-  // Initial load + polling
+  // Effective owner — server-side identity (env or browser-adopted). Used to
+  // scope /api/memories and parameterise AllowanceCard. Polled (not just set
+  // on connect) so adoption from another tab also picks up here.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (!r.ok) return;
+        const me = (await r.json()) as { ownerAddress: Hex | null };
+        if (alive) {
+          setEffectiveOwner(me.ownerAddress ?? null);
+        }
+      } catch {
+        /* dashboard degrades gracefully */
+      }
+    };
+    tick();
+    const i = setInterval(tick, 8_000);
+    return () => {
+      alive = false;
+      clearInterval(i);
+    };
+  }, []);
+
+  // Initial load + polling. Re-runs when effectiveOwner changes so the scoped
+  // /api/memories result swaps as soon as adoption completes.
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
-      const next = await loadAll();
+      const next = await loadAll(effectiveOwner);
       if (!alive) return;
       setData(next);
       timer = setTimeout(tick, REFRESH_INTERVAL_MS);
@@ -168,7 +199,7 @@ function App() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, []);
+  }, [effectiveOwner]);
 
   const inspect = useCallback(async (key: Hex) => {
     setInspectErr(null);
@@ -210,7 +241,8 @@ function App() {
   );
 
   return (
-    <div className="app">
+    <>
+    <div className={`app${mode === "demo" ? " app-demo" : ""}`}>
       <div className="topbar">
         <div className="brand">
           <a href="/" className="back-link" title="Cortex landing">
@@ -222,8 +254,19 @@ function App() {
         </div>
         <div className="topbar-right">
           <AnchorPill />
-          <DevModeToggle mode={mode} onToggle={onToggleMode} />
-          <WalletConnect />
+          {mode === "dev" ? (
+            <>
+              <DevModeToggle mode={mode} onToggle={onToggleMode} />
+              <a href="/console" className="demo-dev-link">
+                Demo view
+              </a>
+            </>
+          ) : (
+            <a href="/console?dev=1" className="demo-dev-link muted">
+              Developer view
+            </a>
+          )}
+          <WalletHeader />
         </div>
       </div>
 
@@ -233,57 +276,75 @@ function App() {
         </div>
       ) : null}
 
-      {/* ============================================================
-       *  AMBIENT — the narrative surface (always rendered)
-       *  Phase 16: the citation widget is the hero; the live spine
-       *  (RPC ticker, RaBitQ, MMR, agent budget) renders beneath it.
-       * ============================================================ */}
+      {mode === "demo" ? (
+        <ConnectGate>
+        <div className="console-demo">
+          <DemoHero
+            memoryCounts={data.memories?.counts ?? null}
+            compressionRatio={data.economics?.compressionRatio ?? null}
+            effectiveOwner={effectiveOwner}
+            memoryCount={data.memories?.counts.total ?? null}
+            onSeeded={() => {
+              void loadAll(effectiveOwner).then(setData);
+            }}
+          />
+
+          <section className="demo-controls" aria-label="Agent controls">
+            <DemoUpload
+              onStored={() => {
+                void loadAll(effectiveOwner).then(setData);
+              }}
+            />
+            <CitationWidget variant="compact" />
+            <DemoInstallStrip />
+          </section>
+        </div>
+        </ConnectGate>
+      ) : (
+        <>
+      {mode === "dev" ? (
+        <div className="dev-banner mono">
+          Developer view — full diagnostics.{" "}
+          <a href="/console">Return to demo layout</a>
+        </div>
+      ) : null}
+
+      {mode === "dev" ? (
+        <SeedBanner
+          effectiveOwner={effectiveOwner}
+          memoryCount={data.memories?.counts.total ?? null}
+          onSeeded={() => {
+            void loadAll(effectiveOwner).then(setData);
+          }}
+        />
+      ) : null}
+
+      <div className="two-pane">
+        <section className="pane pane-live" aria-label="Live Darwinian engine">
 
       <CitationWidget />
 
-      <MemoryConstellation
-        memories={recentMemories}
-        onInspect={inspectMemory}
-      />
+      <div className="section">
+        <div className="section-title">Memory topology</div>
+        <div className="section-hint">
+          The shape of the agent&apos;s memory: each node is a cluster of related
+          memories, brightness is remaining lease. Cite one and its cluster
+          pulses; let one decay and it cools and drops.
+        </div>
+        <MemoryGraph />
+      </div>
 
       <div className="spine-grid">
         <RPCTicker />
         <RaBitQTile />
         <MMRTreePanel />
-        <AllowanceCard sessionKey={null} master={null} />
+        <AllowanceCard sessionKey={null} master={effectiveOwner} />
       </div>
 
       <DecisionTimeline
-        decisions={data.decisions?.decisions ?? []}
+        decisions={(data.decisions?.decisions ?? []).slice(0, 5)}
         onInspectCitation={inspect}
       />
-
-      {/* Synaptic Market — keep visible in both modes */}
-      <div className="section">
-        <div className="section-title">Synaptic Market — preview</div>
-        <div className="section-hint">
-          Where agents will buy and sell proven memories from each other. The
-          listing browser is real; on-chain settlement (escrow + pay-to-decrypt)
-          is deferred — Braga can&apos;t deploy contracts yet, so this is a
-          preview of the layer, not live trading.
-        </div>
-        <div className="card">
-          {data.listings && data.listings.listings.length > 0 ? (
-            data.listings.listings.map((l) => (
-              <ListingCard key={l.entityKey} listing={l} />
-            ))
-          ) : (
-            <div className="empty">
-              No listings yet. When a rule is published with a GLM price, it
-              shows up here for any agent to query.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ============================================================
-       *  DEV — diagnostic surfaces (rendered when mode === "dev")
-       * ============================================================ */}
 
       {mode === "dev" ? (
         <>
@@ -335,53 +396,28 @@ function App() {
 
           {/* Hero stat grid */}
           <div className="section">
-            <div className="grid-2">
-              <StatCard
-                label="Live Memories"
-                value={data.memories?.counts.total ?? "—"}
-                sub={
-                  data.memories ? (
-                    <>
-                      <span>
-                        <span className="dot working" />
-                        {data.memories.counts.working} working
-                      </span>
-                      <span>
-                        <span className="dot episodic" />
-                        {data.memories.counts.episodic} episodic
-                      </span>
-                      <span>
-                        <span className="dot rule" />
-                        {data.memories.counts.rule} rule
-                      </span>
-                    </>
-                  ) : null
-                }
-              />
-              <StatCard
-                label="Synaptic GLM"
-                value={
-                  data.listings
-                    ? formatGlm(data.listings.aggregate.totalEarnedWei)
-                    : "—"
-                }
-                sub={
-                  data.listings ? (
-                    <>
-                      <span>
-                        {data.listings.aggregate.activeListings} active listings
-                      </span>
-                      <span>
-                        last sale{" "}
-                        {data.listings.aggregate.lastSaleAtBlock
-                          ? `block #${data.listings.aggregate.lastSaleAtBlock.toLocaleString()}`
-                          : "—"}
-                      </span>
-                    </>
-                  ) : null
-                }
-              />
-            </div>
+            <StatCard
+              label="Live Memories"
+              value={data.memories?.counts.total ?? "—"}
+              sub={
+                data.memories ? (
+                  <>
+                    <span>
+                      <span className="dot working" />
+                      {data.memories.counts.working} fresh
+                    </span>
+                    <span>
+                      <span className="dot episodic" />
+                      {data.memories.counts.episodic} reinforced
+                    </span>
+                    <span>
+                      <span className="dot rule" />
+                      {data.memories.counts.rule} core
+                    </span>
+                  </>
+                ) : null
+              }
+            />
           </div>
 
           {/* RaBitQ Playground */}
@@ -449,6 +485,16 @@ function App() {
           </div>
         </>
       ) : null}
+
+        </section>
+
+        {/* ───────── PANE 2 — DEVELOPER HUB (integration show & tell) ───────── */}
+        <aside className="pane pane-dev" aria-label="Developer hub">
+          <DeveloperHub />
+        </aside>
+      </div>
+        </>
+      )}
 
       <div
         style={{ textAlign: "center", color: "var(--muted)", fontSize: 12 }}
@@ -534,13 +580,108 @@ function App() {
         </div>
       ) : null}
     </div>
+    <CortexFooter />
+    </>
   );
 }
 
-const container = document.getElementById("root");
-if (!container) throw new Error("missing #root container");
-createRoot(container).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+interface SeedBannerProps {
+  effectiveOwner: Hex | null;
+  memoryCount: number | null;
+  onSeeded: () => void;
+}
+
+/**
+ * "Your wallet has no memories yet — seed 20 to wake the loop" banner.
+ *
+ * Only renders when an adopted wallet (effectiveOwner != null) currently owns
+ * zero Cortex memories. After a successful seed, the parent re-fetches and the
+ * banner self-dismisses (memoryCount > 0).
+ */
+function SeedBanner({ effectiveOwner, memoryCount, onSeeded }: SeedBannerProps) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [seededTx, setSeededTx] = useState<string | null>(null);
+
+  if (!effectiveOwner) return null;
+  if (memoryCount === null) return null;
+  if (memoryCount > 0 && !seededTx) return null;
+
+  async function seed() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/seed-memories", { method: "POST" });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const body = (await res.json()) as { txHash: string; count: number };
+      setSeededTx(body.txHash);
+      onSeeded();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="card"
+      style={{
+        margin: "12px 0",
+        padding: 16,
+        border: "1px solid var(--accent-orange, #FF5A00)",
+        background: "rgba(255, 90, 0, 0.06)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 320px" }}>
+          <strong>This wallet has no memories yet.</strong>{" "}
+          <span style={{ color: "var(--muted)" }}>
+            Seed 20 starter observations under your address so the autonomous
+            loop has something to recall + cite. Single Arkiv tx; the loop
+            picks them up within ~20s.
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={seed}
+          style={{
+            padding: "10px 18px",
+            background: "var(--accent-orange, #FF5A00)",
+            color: "#000",
+            border: 0,
+            borderRadius: 6,
+            fontWeight: 600,
+            cursor: busy ? "wait" : "pointer",
+            minWidth: 160,
+          }}
+        >
+          {busy ? "Seeding…" : "Seed memories"}
+        </button>
+      </div>
+      {err ? (
+        <div style={{ marginTop: 10, color: "var(--accent-red, #ff5050)" }}>
+          {err}
+        </div>
+      ) : null}
+      {seededTx ? (
+        <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
+          ✓ tx{" "}
+          <a
+            href={`https://explorer.braga.hoodi.arkiv.network/tx/${seededTx}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mono"
+          >
+            {seededTx.slice(0, 18)}…
+          </a>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export default ConsoleApp;

@@ -124,6 +124,16 @@ export type DomainEvent =
       reinforcementSeconds: number;
       promotedTo?: "episodic" | "rule";
     }
+  | {
+      // Lease elapsed without renewal → the memory drops out of the live set.
+      // The dashboard animates this as "fades, then drops" (the Darwinian payoff).
+      type: "memory.evicted";
+      ts: number;
+      entityKey: Hex;
+      tier: SpineTier;
+      expiredAtBlock: number;
+      gasReclaimedEstimate: number;
+    }
   | { type: "mmr.appended"; ts: number; leafIndex: number; leafHash: Hex; newRoot: Hex; leafCount: number }
   | { type: "anchor.committed"; ts: number; rootHex: Hex; leafCount: number; txHash: string; blockNumber?: number }
   | { type: "allowance.spent"; ts: number; wei: string; remainingWei: string; runwaySeconds: number }
@@ -137,6 +147,7 @@ export const ALL_EVENT_TYPES: DomainEventType[] = [
   "rabitq.encoded",
   "memory.created",
   "memory.cited",
+  "memory.evicted",
   "mmr.appended",
   "anchor.committed",
   "allowance.spent",

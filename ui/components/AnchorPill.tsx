@@ -56,9 +56,13 @@ export function AnchorPill() {
 
   if (!latest) {
     return (
-      <span className="anchor-pill anchor-pill-idle" title="No state root anchored yet">
+      <span
+        className="anchor-pill anchor-pill-idle"
+        title="Cryptographic snapshot of all memories — written to Arkiv after each act()"
+      >
         <span className="anchor-pill-dot" aria-hidden />
-        <span className="anchor-pill-root mono">root —</span>
+        <span className="anchor-pill-label">Verified state</span>
+        <span className="anchor-pill-root mono">—</span>
       </span>
     );
   }
@@ -72,6 +76,7 @@ export function AnchorPill() {
       title={`MMR root ${latest.rootHex} · ${latest.leafCount} leaves · anchored on Arkiv`}
     >
       <span className="anchor-pill-dot" aria-hidden />
+      <span className="anchor-pill-label">Verified state</span>
       <span className="anchor-pill-root mono">{truncHex(latest.rootHex)}</span>
       <span className="anchor-pill-age">{relTime(latest.ts)}</span>
     </a>
