@@ -210,9 +210,20 @@ export function startAutonomousLoop(
         queuedAt: now(),
       });
 
+      // Per-tick identity lookup. The dashboard's browser-adoption flow swaps
+      // the singleton at runtime; reading it here (not capturing opts.userPrimaryEOA
+      // at startup) lets the loop re-key live. Env/plugin-mode deployments fall
+      // back to the boot-time opts.userPrimaryEOA.
+      const { _peekCached } = await import("./owner-identity");
+      const effective = _peekCached();
+      const userPrimaryEOA =
+        effective?.source === "browser" && effective.ownerAddress
+          ? effective.ownerAddress
+          : opts.userPrimaryEOA;
+
       const cycle = await runCiteCycle({
         query,
-        userPrimaryEOA: opts.userPrimaryEOA,
+        userPrimaryEOA,
         k,
         citeTopN,
         actionLabel: "auto",

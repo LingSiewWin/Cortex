@@ -73,6 +73,23 @@ export type DomainEvent =
       promotedTo?: "episodic" | "rule";
     }
   | {
+      // The Darwinian payoff: a memory's lease elapsed without enough citations
+      // to renew it, so it drops out of the live set. Emitted in-process by the
+      // evict-watcher (src/mirror/evict-watcher.ts) the moment a live mirrored
+      // entity crosses its expires_at_block — this is what the dashboard animates
+      // as "fades, then drops." Semantics: the lease we paid for has elapsed and
+      // Arkiv auto-deletes expired entities for free (no manual-delete gas). The
+      // daemon later confirms the on-chain ArkivEntityExpired into /api/decay.
+      type: "memory.evicted";
+      ts: number;
+      entityKey: Hex;
+      tier: TierName;
+      /** Mirror's last-known expirationBlock — the block the lease ran out. */
+      expiredAtBlock: number;
+      /** ~gas a manual delete would have cost; Arkiv reclaims the slot for free. */
+      gasReclaimedEstimate: number;
+    }
+  | {
       type: "mmr.appended";
       ts: number;
       leafIndex: number;
@@ -122,6 +139,7 @@ export const ALL_EVENT_TYPES: DomainEventType[] = [
   "rabitq.encoded",
   "memory.created",
   "memory.cited",
+  "memory.evicted",
   "mmr.appended",
   "anchor.committed",
   "allowance.spent",

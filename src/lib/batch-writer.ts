@@ -20,14 +20,21 @@ import { withRetry } from "./errors";
 import { publish } from "./events";
 import { sealPayload } from "./crypto";
 import { requirePayloadKey } from "./payload-key";
-import { ENTITY_TYPE, SEALED_CONTENT_TYPE } from "../constants";
+import { ENTITY_TYPE, SEALED_CONTENT_TYPE, REINFORCEMENT, WORKSPACE_ATTR } from "../constants";
+import {
+  encodeDocumentPayload,
+  DOCUMENT_SCHEMA_VERSION,
+  type DocumentSectionInput,
+} from "../compression/document-payload";
 
 /** Map a stamped `entityType` attribute to a Constellation tier (or undefined
- *  for non-memory entities like citation / state_root / listing / grant). */
+ *  for non-memory entities like citation / state_root / listing / grant).
+ *  Documents are durable, so they render as a `rule`-tier (cold/blue) node. */
 const TIER_BY_ENTITY_TYPE: Record<string, "working" | "episodic" | "rule"> = {
   [ENTITY_TYPE.OBSERVATION]: "working",
   [ENTITY_TYPE.EPISODE]: "episodic",
   [ENTITY_TYPE.RULE]: "rule",
+  [ENTITY_TYPE.DOCUMENT]: "rule",
 };
 
 /** A single create spec — caller-supplied. PROJECT_ATTRIBUTE is added for you. */
@@ -140,6 +147,120 @@ export async function createMemory(item: CortexCreate): Promise<{
   const key = await requirePayloadKey();
   const sealed = await sealPayload(key, item.payload);
   return singleCreate({ ...item, payload: sealed, contentType: SEALED_CONTENT_TYPE });
+}
+
+// ---------------------------------------------------------------------------
+// Document Tier — opt-in full-text + embedding sealed write.
+//
+// Unlike observation/episode (which seal only a lossy ~198-byte RaBitQ
+// fingerprint), a document seals CBOR{ full text + embeddings } so the note is
+// recoverable from the wallet alone. Durable lease by default. Queryable
+// attributes carry NO content (only ids/hashes) — title/path/text/frontmatter
+// stay inside the sealed payload.
+// ---------------------------------------------------------------------------
+
+export interface DocumentCreateInput {
+  /** Full UTF-8 note text — preserved losslessly in the sealed payload. */
+  text: string;
+  /** Whole-note 1536-d embedding (full precision). */
+  embedding: Float32Array;
+  /** Optional passage-level sections for finer recall (one entity either way). */
+  sections?: DocumentSectionInput[];
+  title?: string;
+  vaultPath?: string;
+  frontmatter?: Record<string, unknown>;
+  /** Stable id for the note across edits/renames. Defaults to a path/content hash. */
+  docId?: string;
+  /** Lifespan override; defaults to the durable document lease. */
+  expiresInSeconds?: number;
+  /**
+   * Provenance — the tabular layer that makes recall sharp ON YOUR WORK and
+   * enables server-side `arkiv_query` scoping. Stamped as queryable attributes.
+   * `project`/`sessionId` are strings (exact-match/glob); `tierLevel` is a NUMBER
+   * (0=fresh,1=reinforced,2=core) so `tierLevel >= n` range queries work — Arkiv
+   * buckets attributes by JS type and only numerics are range-comparable.
+   */
+  project?: string;
+  sessionId?: string;
+  /** Lifecycle tier as a number for range queries. Default 2 (core) — docs are durable. */
+  tierLevel?: number;
+  /** Optional record kind, e.g. "session-summary", surfaced as a queryable attribute. */
+  kind?: string;
+  /** When set, stamped as contentHash instead of sha256(text). Used for binary uploads. */
+  contentSha256?: string;
+  mimeType?: string;
+  filename?: string;
+}
+
+export interface DocumentCreateResult {
+  txHash: Hex;
+  entityKey: Hex;
+  docId: string;
+  contentSha256: string;
+}
+
+/** sha-256 hex of a UTF-8 string. */
+async function sha256Hex(s: string): Promise<string> {
+  const data = new TextEncoder().encode(s);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Create one sealed DOCUMENT entity (full text + embeddings). Throws if no
+ * wallet key is available. Returns the stable docId + content hash so callers
+ * can stamp the Obsidian note back / detect idempotent re-stores.
+ */
+export async function createDocumentMemory(
+  input: DocumentCreateInput,
+): Promise<DocumentCreateResult> {
+  if (typeof input.text !== "string" || input.text.trim().length === 0) {
+    throw new Error("createDocumentMemory: text must be a non-empty string");
+  }
+  const contentSha256 = input.contentSha256 ?? (await sha256Hex(input.text));
+  // Stable id: prefer a path-derived id (survives edits of the same note),
+  // else fall back to a content-derived id for ad-hoc stores.
+  const docId =
+    input.docId ??
+    (input.vaultPath
+      ? `cx_${(await sha256Hex(input.vaultPath)).slice(0, 16)}`
+      : `cx_${contentSha256.slice(0, 16)}`);
+
+  const payload = encodeDocumentPayload({
+    text: input.text,
+    embedding: input.embedding,
+    ...(input.sections ? { sections: input.sections } : {}),
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.vaultPath ? { vaultPath: input.vaultPath } : {}),
+    ...(input.frontmatter ? { frontmatter: input.frontmatter } : {}),
+    contentSha256,
+  });
+
+  const attributes: Attribute[] = [
+    { key: "entityType", value: ENTITY_TYPE.DOCUMENT },
+    { key: "docId", value: docId },
+    { key: "contentHash", value: contentSha256 },
+    { key: "updatedAt", value: Date.now() },
+    { key: "schemaVersion", value: DOCUMENT_SCHEMA_VERSION },
+    // tierLevel is numeric so `tierLevel >= n` is range-queryable on Arkiv.
+    { key: "tierLevel", value: input.tierLevel ?? 2 },
+  ];
+  if (input.project) attributes.push({ key: WORKSPACE_ATTR, value: input.project });
+  if (input.sessionId) attributes.push({ key: "sessionId", value: input.sessionId });
+  if (input.kind) attributes.push({ key: "kind", value: input.kind });
+  if (input.mimeType) attributes.push({ key: "mimeType", value: input.mimeType });
+  if (input.filename) attributes.push({ key: "filename", value: input.filename });
+
+  const { txHash, entityKey } = await createMemory({
+    payload,
+    attributes,
+    contentType: SEALED_CONTENT_TYPE, // replaced by createMemory anyway
+    expiresInSeconds: input.expiresInSeconds ?? REINFORCEMENT.documentInitialSeconds,
+  });
+
+  return { txHash, entityKey, docId, contentSha256 };
 }
 
 /** Batch-create sealed memory entities (one tx). Throws if no wallet key is available. */

@@ -7,6 +7,8 @@
  * Per CLAUDE.md "Pinned facts": do not change without explicit user approval.
  */
 
+import { KEY_DERIVATION_DOMAIN } from "./lib/derivation-message";
+
 /**
  * Namespace tag stamped on every Cortex entity. Filters our data out of the shared
  * Arkiv state. The value should be globally unique — if a judge collides with us,
@@ -20,6 +22,25 @@ export const PROJECT_ATTRIBUTE = {
 if (!PROJECT_ATTRIBUTE.value) {
   throw new Error(
     "PROJECT_ATTRIBUTE.value must be set. Without it, Cortex queries will mix with other projects' entities on the shared Arkiv DB.",
+  );
+}
+
+/**
+ * Per-workspace provenance attribute key — tags which of the USER's repos /
+ * workspaces a memory belongs to (drives project-scoped recall + per-project
+ * graph clusters).
+ *
+ * MUST NOT be "project": that key is reserved by PROJECT_ATTRIBUTE (the global
+ * Cortex namespace stamped on EVERY entity). Reusing "project" for per-repo
+ * provenance collided — an entity got two `project` attributes, the namespace
+ * value won, the repo value was silently dropped, and `project = "<repo>"`
+ * queries returned 0. (Learned the hard way; do not change back to "project".)
+ */
+export const WORKSPACE_ATTR = "workspace" as const;
+
+if ((WORKSPACE_ATTR as string) === PROJECT_ATTRIBUTE.key) {
+  throw new Error(
+    "WORKSPACE_ATTR must differ from PROJECT_ATTRIBUTE.key — reusing the namespace key collides and silently drops workspace provenance.",
   );
 }
 
@@ -54,6 +75,14 @@ export const ENTITY_TYPE = {
   EPISODE: "episode",
   /** Semantic-tier plain-text rule, LLM-distilled from episodes. */
   RULE: "rule",
+  /**
+   * Opt-in Document Tier — full-text long-form note (e.g. an Obsidian note).
+   * Sealed payload is CBOR{ text, code, emb, sections… } (see
+   * src/compression/document-payload.ts): the FULL text + embeddings, so the
+   * vault is recoverable from the wallet alone (lossless), not just a lossy
+   * RaBitQ fingerprint. Durable by default (sovereignty), reinforced on recall.
+   */
+  DOCUMENT: "document",
   /** Citation record — links an act() call to the memory IDs it relied on. */
   CITATION: "citation",
   /** Synaptic Market listing — encrypted payload + public tags. */
@@ -97,6 +126,13 @@ export const REINFORCEMENT = {
   workingReinforcementSeconds: 24 * 60 * 60, // 24 hours per citation
   episodicReinforcementSeconds: 7 * 24 * 60 * 60, // 7 days on promotion
   semanticInitialSeconds: 365 * 24 * 60 * 60, // 1 year expiration (fee-model defensive)
+  /**
+   * Document Tier starting lease — DURABLE. A user's own note is the substrate,
+   * not ephemeral telemetry: "laptop dies → recover from chain" is a lie if the
+   * note decayed off-chain first. 1 year (capped per CLAUDE.md "no >1y TTL"),
+   * reinforced on recall/citation like every other tier.
+   */
+  documentInitialSeconds: 365 * 24 * 60 * 60, // 1 year (durable, reinforced on use)
   /** Citations needed to promote working → episodic. */
   promoteToEpisodic: 2,
   /** Citations needed to trigger LLM distillation to semantic. */
@@ -167,6 +203,6 @@ export const MARKET = {
 export const SESSION = {
   defaultValidDurationSeconds: 4 * 60 * 60, // 4 hours
   defaultMaxWrites: 1000,
-  /** Domain separator for deterministic key derivation. */
-  keyDerivationDomain: "CORTEX_KEY_DERIVATION_v1",
+  /** Domain separator for deterministic key derivation. Single source: derivation-message.ts. */
+  keyDerivationDomain: KEY_DERIVATION_DOMAIN,
 } as const;

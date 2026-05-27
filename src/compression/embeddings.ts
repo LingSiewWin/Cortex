@@ -18,15 +18,76 @@
 
 import { packCode, rabitqEncode } from "./rabitq.ts";
 import { publish } from "../lib/events.ts";
+import { readConfig } from "../lib/cortex-config.ts";
 
 const EMBED_DIM = 1536;
+const EMBED_FETCH_TIMEOUT_MS = 30_000;
+
+// Direct OpenAI — the key most developers already have. 1536-d natively.
+const OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings";
+const OPENAI_MODEL = process.env["OPENAI_EMBED_MODEL"] ?? "text-embedding-3-small";
 
 const OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings";
 // Overridable in case the routed model id differs; default is natively 1536-d.
 const OPENROUTER_MODEL = process.env["OPENROUTER_EMBED_MODEL"] ?? "openai/text-embedding-3-small";
 
+// Voyage AI — Anthropic's officially-recommended embeddings partner (Anthropic
+// itself has NO embeddings API, so this is the path for Claude/Anthropic users).
+// `voyage-large-2` is natively 1536-d, so RaBitQ stays locked. OpenAI-shaped response.
+const VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings";
+const VOYAGE_MODEL = process.env["VOYAGE_EMBED_MODEL"] ?? "voyage-large-2";
+
 const COHERE_EMBED_URL = "https://api.cohere.com/v2/embed";
 const COHERE_MODEL = "embed-v4.0";
+
+/**
+ * Thrown when NO embedding provider key is configured. Carries a friendly,
+ * actionable message (see `embedText`). Callers (the MCP store tools, the
+ * capture hook) detect this to show the user exactly what to do rather than a
+ * raw stack trace — and to NOT retry, since it won't fix itself by waiting.
+ */
+export class MissingEmbeddingKeyError extends Error {
+  readonly isMissingEmbeddingKey = true as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingEmbeddingKeyError";
+  }
+}
+
+/** True for a "no embedding key configured" error (survives bundling/serialization). */
+export function isMissingEmbeddingKey(err: unknown): boolean {
+  return (
+    err instanceof MissingEmbeddingKeyError ||
+    (typeof err === "object" && err !== null && "isMissingEmbeddingKey" in err)
+  );
+}
+
+/** True if ANY embedding provider key is configured. Lets hooks warn up-front. */
+export function hasEmbeddingKey(): boolean {
+  return Boolean(
+    process.env["OPENAI_API_KEY"] ||
+      process.env["OPENROUTER_API_KEY"] ||
+      process.env["VOYAGE_API_KEY"] ||
+      process.env["COHERE_API_KEY"] ||
+      readConfig()?.embeddingKey,
+  );
+}
+
+/** The polished, friendly "set your key" message. One place, reused everywhere. */
+export const EMBEDDING_SETUP_MESSAGE = [
+  "Cortex needs an embedding API key to turn your notes into searchable memory.",
+  "",
+  "Add ONE of these to your environment (your shell profile, or a .env in your project):",
+  "  • OPENAI_API_KEY=sk-…        ← get one at https://platform.openai.com/api-keys",
+  "  • OPENROUTER_API_KEY=sk-or-… ← or https://openrouter.ai/keys",
+  "  • VOYAGE_API_KEY=…           ← Claude/Anthropic users: Anthropic has no embeddings",
+  "                                 API, so use Voyage (their recommended partner):",
+  "                                 https://dashboard.voyageai.com/",
+  "  • COHERE_API_KEY=…           ← or https://dashboard.cohere.com/api-keys",
+  "",
+  "Then restart your session. (Your text is only sent to that provider to embed;",
+  "the memory itself is encrypted with your wallet and stored on Arkiv.)",
+].join("\n");
 
 interface CohereEmbeddingResponse {
   id: string;
@@ -53,6 +114,34 @@ function toFloat32(arr: number[], provider: string): Float32Array {
   return out;
 }
 
+async function embedViaOpenAI(text: string, apiKey: string): Promise<Float32Array> {
+  const res = await fetch(OPENAI_EMBED_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: [text],
+      // text-embedding-3-* are natively 1536-d at the default; pin it explicitly
+      // so an org default can't hand us a different dimension (RaBitQ needs 1536).
+      dimensions: EMBED_DIM,
+      encoding_format: "float",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `embedText: OpenAI request failed ${res.status} ${res.statusText} — ${body.slice(0, 500)}`,
+    );
+  }
+  const json = (await res.json()) as OpenAIEmbeddingResponse;
+  const first = json.data?.[0]?.embedding;
+  return toFloat32(first as number[], `OpenAI(${OPENAI_MODEL})`);
+}
+
 async function embedViaOpenRouter(text: string, apiKey: string): Promise<Float32Array> {
   const res = await fetch(OPENROUTER_EMBED_URL, {
     method: "POST",
@@ -60,6 +149,7 @@ async function embedViaOpenRouter(text: string, apiKey: string): Promise<Float32
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: OPENROUTER_MODEL,
       input: [text],
@@ -77,6 +167,32 @@ async function embedViaOpenRouter(text: string, apiKey: string): Promise<Float32
   return toFloat32(first as number[], `OpenRouter(${OPENROUTER_MODEL})`);
 }
 
+async function embedViaVoyage(text: string, apiKey: string): Promise<Float32Array> {
+  const res = await fetch(VOYAGE_EMBED_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: VOYAGE_MODEL,
+      input: [text],
+      input_type: "document",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `embedText: Voyage request failed ${res.status} ${res.statusText} — ${body.slice(0, 500)}`,
+    );
+  }
+  // Voyage returns an OpenAI-shaped { data: [{ embedding }] }.
+  const json = (await res.json()) as OpenAIEmbeddingResponse;
+  const first = json.data?.[0]?.embedding;
+  return toFloat32(first as number[], `Voyage(${VOYAGE_MODEL})`);
+}
+
 async function embedViaCohere(text: string, apiKey: string): Promise<Float32Array> {
   const res = await fetch(COHERE_EMBED_URL, {
     method: "POST",
@@ -84,6 +200,7 @@ async function embedViaCohere(text: string, apiKey: string): Promise<Float32Arra
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       model: COHERE_MODEL,
       texts: [text],
@@ -107,15 +224,39 @@ export async function embedText(text: string): Promise<Float32Array> {
   if (typeof text !== "string" || text.length === 0) {
     throw new Error("embedText: input text must be a non-empty string");
   }
+  // Provider order: direct OpenAI (the key most devs have) → OpenRouter → Cohere.
+  // All return 1536-d, so RaBitQ stays locked and stable.
+  const openAiKey = process.env["OPENAI_API_KEY"];
+  if (openAiKey) return embedViaOpenAI(text, openAiKey);
+
   const openRouterKey = process.env["OPENROUTER_API_KEY"];
   if (openRouterKey) return embedViaOpenRouter(text, openRouterKey);
+
+  // Voyage — the Claude/Anthropic-ecosystem path (Anthropic has no embeddings API).
+  const voyageKey = process.env["VOYAGE_API_KEY"];
+  if (voyageKey) return embedViaVoyage(text, voyageKey);
 
   const cohereKey = process.env["COHERE_API_KEY"];
   if (cohereKey) return embedViaCohere(text, cohereKey);
 
-  throw new Error(
-    "embedText: no embedding provider configured. Set OPENROUTER_API_KEY (preferred) or COHERE_API_KEY in .env.",
-  );
+  // Fallback: the key `cortex auth` stored in ~/.cortex/config.json, routed to the
+  // provider it belongs to. Env always wins above; this only fires when no env key.
+  const cfg = readConfig();
+  if (cfg?.embeddingKey) {
+    switch (cfg.embeddingProvider ?? "openai") {
+      case "openrouter":
+        return embedViaOpenRouter(text, cfg.embeddingKey);
+      case "voyage":
+        return embedViaVoyage(text, cfg.embeddingKey);
+      case "cohere":
+        return embedViaCohere(text, cfg.embeddingKey);
+      case "openai":
+      default:
+        return embedViaOpenAI(text, cfg.embeddingKey);
+    }
+  }
+
+  throw new MissingEmbeddingKeyError(EMBEDDING_SETUP_MESSAGE);
 }
 
 /**

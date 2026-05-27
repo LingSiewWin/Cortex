@@ -42,7 +42,21 @@ import {
   handleStateProofRequest,
 } from "./api/state";
 import { handleSSE } from "./api/sse";
+import { handleTopologyRequest } from "./topology/build-from-mirror";
 import { handleManualCitation } from "./api/citation";
+import {
+  handleAdoptRequest,
+  handleAuthMe,
+  setSiweSessionLookup,
+} from "./api/auth-adopt";
+import {
+  handleSeedRequest,
+  setSeedSiweSessionLookup,
+} from "./api/seed";
+import {
+  handleStoreFileRequest,
+  setStoreFileSiweSessionLookup,
+} from "./api/store-file";
 import {
   startSingletonLoop,
   handleLoopStatus,
@@ -50,9 +64,12 @@ import {
 } from "./agent/loop-singleton";
 import { startAnchorWorker, type AnchorWorkerHandle } from "./agent/anchor-worker";
 import { sampleChainHead } from "./mirror/chain-health";
+import { startEvictWatcher, type EvictWatcherHandle } from "./mirror/evict-watcher";
 
 /** Held at module scope so the background anchor worker isn't GC'd while the server runs. */
 let _anchorWorker: AnchorWorkerHandle | null = null;
+/** Held at module scope so the evict watcher isn't GC'd while the server runs. */
+let _evictWatcher: EvictWatcherHandle | null = null;
 import {
   listMirroredEntities,
   getMirroredEntity,
@@ -350,6 +367,17 @@ interface ViewerSession {
 
 const pendingNonces = new Map<string, PendingNonce>();
 const sessions = new Map<string, ViewerSession>();
+
+// Inject SIWE-session lookup into the auth-adopt module (avoids a circular
+// import: ui-server → auth-adopt → ui-server). Returns the minimal shape
+// auth-adopt needs (address only) so future ViewerSession changes don't ripple.
+const siweLookup = (cookieValue: string) => {
+  const s = sessions.get(cookieValue);
+  return s ? { address: s.address } : null;
+};
+setSiweSessionLookup(siweLookup);
+setSeedSiweSessionLookup(siweLookup);
+setStoreFileSiweSessionLookup(siweLookup);
 
 /**
  * Per-user set of consumed SessionAuthorization nonces. The audit requires
@@ -918,6 +946,27 @@ const PORT = Number(process.env.DASHBOARD_PORT ?? 3000);
 
 // Only auto-serve when this file is the entry point — letting tests import
 // the route handlers without binding a port.
+/**
+ * Serve a repo-relative static file. `Bun.serve` honours Range requests
+ * automatically when the response body is a `Bun.file`, so background video
+ * scrubbing / partial fetches work without manual byte-range handling.
+ */
+async function serveStaticFile(
+  relPath: string,
+  contentType: string,
+): Promise<Response> {
+  const file = Bun.file(relPath);
+  if (!(await file.exists())) {
+    return new Response("not found", { status: 404 });
+  }
+  return new Response(file, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+}
+
 const isEntry = import.meta.main;
 
 if (isEntry) {
@@ -944,10 +993,19 @@ if (isEntry) {
       // Trilemma scoreboard endpoints
       "/api/economics": handleEconomicsRequest,
       "/api/decay": handleDecayRequest,
+      // Mapper topology graph (server-side; decrypts the mirror in-process)
+      "/api/topology": handleTopologyRequest,
       // Auth (console-side only)
       "/api/auth/siwe/init": { POST: handleSiweInit },
       "/api/auth/siwe/verify": { POST: handleSiweVerify },
       "/api/auth/session": { POST: handleSessionAuth },
+      // Dashboard wallet adoption — re-keys the autonomous loop + AES seal key
+      "/api/auth/adopt": { POST: handleAdoptRequest },
+      "/api/auth/me": handleAuthMe,
+      // Bootstrap: create 8 demo observations sealed with the adopted wallet's
+      // key so the loop has something to recall+cite right after adoption.
+      "/api/seed-memories": { POST: handleSeedRequest },
+      "/api/store-file": { POST: handleStoreFileRequest },
       // Phase 10 — RaBitQ playground (live encode + live recall)
       // Wrappers strip Bun's `server` 2nd arg so the handlers' optional
       // `deps` test seam doesn't clash with the route-handler type.
@@ -980,6 +1038,14 @@ if (isEntry) {
       // Phase 16 — autonomous loop control + status
       "/api/loop/status": handleLoopStatus,
       "/api/loop/control": { POST: (req) => handleLoopControl(req) },
+      // Landing hero background video. Served from disk so Bun handles
+      // Range requests + content-type; kept out of the JS bundle graph.
+      "/assets/landing-video.mp4": () =>
+        serveStaticFile("assets/landing-video.mp4", "video/mp4"),
+      // Footer backdrop — a ~1MB still (vs the 7.7MB hero loop) so the footer,
+      // and especially the video-less console, paint fast.
+      "/assets/landing-footer.png": () =>
+        serveStaticFile("assets/landing-footer.png", "image/png"),
       // Silence the favicon 404 so a judge's DevTools console stays clean.
       "/favicon.ico": () => new Response(null, { status: 204 }),
     },
@@ -1037,6 +1103,30 @@ if (isEntry) {
       // eslint-disable-next-line no-console
       console.warn(
         `[cortex/ui] anchor worker failed to start: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  // The Darwinian payoff, live — sweep the shared mirror for memories whose
+  // lease just elapsed and emit `memory.evicted` so the constellation animates
+  // "fades, then drops" in real time. Runs in THIS process so events reach /sse
+  // (the daemon is a separate process and can't publish to this bus).
+  // Kill-switch: CORTEX_EVICT_WATCHER=off.
+  if (process.env.CORTEX_EVICT_WATCHER !== "off") {
+    try {
+      _evictWatcher = await startEvictWatcher({
+        deps: { currentBlock: getCurrentBlockEstimate },
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[cortex/ui] evict watcher started — live memory.evicted on lease expiry (set CORTEX_EVICT_WATCHER=off to disable)`,
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[cortex/ui] evict watcher failed to start: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

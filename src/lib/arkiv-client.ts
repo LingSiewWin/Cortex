@@ -28,6 +28,7 @@ import type { Attribute } from "@arkiv-network/sdk/types";
 import { eq } from "@arkiv-network/sdk/query";
 import { PROJECT_ATTRIBUTE, BRAGA } from "../constants";
 import { publish, type ArkivRpcMethod } from "./events";
+import { readConfig } from "./cortex-config";
 
 // ---------------------------------------------------------------------------
 // Singletons
@@ -42,7 +43,11 @@ export function getPublicClient(): PublicArkivClient {
     const customRpc = process.env.CORTEX_BRAGA_RPC;
     _publicClient = createPublicClient({
       chain: braga,
-      transport: http(customRpc ?? BRAGA.httpRpc),
+      transport: http(customRpc ?? BRAGA.httpRpc, {
+        timeout: 60_000,
+        retryCount: 2,
+        retryDelay: 500,
+      }),
     });
   }
   return _publicClient;
@@ -55,11 +60,12 @@ export function getPublicClient(): PublicArkivClient {
 export function getWalletClient(): WalletArkivClient {
   if (_walletClient) return _walletClient;
 
-  const pk = process.env.SESSION_KEY_PRIVATE_KEY;
+  // env wins; else the session key `cortex auth` generated into ~/.cortex/config.json
+  const pk = process.env.SESSION_KEY_PRIVATE_KEY ?? readConfig()?.sessionKeyPrivate;
   if (!pk) {
     throw new Error(
-      "SESSION_KEY_PRIVATE_KEY missing from environment. " +
-        "Copy .env.example to .env and fund the session-key EOA via " +
+      "No session key. Run `cortex auth` (connect your wallet) — or set " +
+        "SESSION_KEY_PRIVATE_KEY and fund the EOA via " +
         BRAGA.faucet,
     );
   }
@@ -72,7 +78,11 @@ export function getWalletClient(): WalletArkivClient {
   const customRpc = process.env.CORTEX_BRAGA_RPC;
   _walletClient = createWalletClient({
     chain: braga,
-    transport: http(customRpc ?? BRAGA.httpRpc),
+    transport: http(customRpc ?? BRAGA.httpRpc, {
+      timeout: 60_000,
+      retryCount: 2,
+      retryDelay: 500,
+    }),
     account: privateKeyToAccount(pk as Hex),
   });
   return _walletClient;
@@ -103,10 +113,26 @@ export function getSessionKeyAddress(): Hex {
  * `$creator` returned by `getSessionKeyAddress()`.
  */
 export function getUserPrimaryEOA(): Hex {
-  const v = process.env.USER_PRIMARY_ADDRESS;
+  // Dashboard browser-adoption wins. Synchronous peek at an already-resolved
+  // singleton (env resolution is async; we keep this function sync since callers
+  // expect a non-Promise). Honors only a BROWSER source — env state still flows
+  // through the legacy env/config path below.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("../agent/owner-identity") as typeof import("../agent/owner-identity");
+    const cached = mod._peekCached?.();
+    if (cached && cached.source === "browser" && cached.ownerAddress) {
+      return cached.ownerAddress;
+    }
+  } catch {
+    /* singleton module not loaded yet — fall through to env */
+  }
+
+  // env wins; else the wallet address `cortex auth` recorded into ~/.cortex/config.json
+  const v = process.env.USER_PRIMARY_ADDRESS ?? readConfig()?.ownerAddress;
   if (!v) {
     throw new Error(
-      "USER_PRIMARY_ADDRESS missing from env. See .env.example.",
+      "No owner wallet. Run `cortex auth` (connect your wallet) — or set USER_PRIMARY_ADDRESS.",
     );
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(v)) {

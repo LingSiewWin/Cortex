@@ -31,13 +31,26 @@ function text(t: string): ToolTextResult {
 export interface MemoryRecallParams {
   query: string;
   k?: number;
+  /** Hybrid recall — boost memories from this project. */
+  project?: string;
+  /** Hybrid recall — boost memories from this session (continuity). */
+  sessionId?: string;
+  /** Hard-filter to `project` only. */
+  requireProject?: boolean;
   /** Test-only seam forwarded to recall; the plugin shell never sets it. */
   _deps?: RecallDeps;
 }
 
 /** memory_recall — surface the top-k Cortex memories for a query. */
 export async function memoryRecall(p: MemoryRecallParams): Promise<ToolTextResult> {
-  const hits = await recall({ query: p.query, k: p.k ?? 5, _deps: p._deps });
+  const hits = await recall({
+    query: p.query,
+    k: p.k ?? 5,
+    ...(p.project ? { project: p.project } : {}),
+    ...(p.sessionId ? { sessionId: p.sessionId } : {}),
+    ...(p.requireProject ? { requireProject: p.requireProject } : {}),
+    ...(p._deps ? { _deps: p._deps } : {}),
+  });
   if (hits.length === 0) {
     return text("No relevant memories found in Cortex.");
   }
