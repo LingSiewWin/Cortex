@@ -35,6 +35,38 @@ An autonomous loop (server session key) recalls and cites on a timer; each step 
 
 ---
 
+## Claude Code plugin
+
+![Cortex console — wallet upload and MCP / OpenClaw integrate panel](./assets/plug-in.png)
+
+**Marketplace (Claude Code):**
+
+```text
+/plugin marketplace add LingSiewWin/Cortex
+/plugin install cortex-memory
+cortex auth
+```
+
+![Claude Code — marketplace install and cortex auth in the terminal](./assets/claude-plugin-auth.png)
+
+Verified flow: marketplace add → `cortex-memory` install → `cortex auth` writes `~/.cortex/config.json` (owner wallet + session key). Fund the printed session key on [Braga faucet](https://braga.hoodi.arkiv.network/faucet/) before Arkiv writes.
+
+`cortex auth` opens a local page — keep the terminal open until you sign. Requires **`bun`** on your PATH.
+
+**From a clone** (after `bun run build:plugin`):
+
+```bash
+claude plugin install --plugin-dir ./cortex-plugin
+```
+
+- **Hooks:** capture before compaction, recall at session start
+- **MCP:** `cortex_recall`, `cortex_act`, `cortex_store_document` on stdio (`bun run mcp` from repo root)
+- **Skill:** `cortex-memory` usage patterns
+
+Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`. See [`cortex-plugin/README.md`](./cortex-plugin/README.md).
+
+---
+
 ## Quick start
 
 ```bash
@@ -164,20 +196,6 @@ sequenceDiagram
 |___ tests/            Offline + smoke/canary against Braga
 |___ contracts/        CortexRegistry.sol (+ SynapticMarket.sol deferred on Braga)
 ```
-
----
-
-## Claude Code plugin
-
-![Cortex console — wallet upload and MCP / OpenClaw integrate panel](./assets/plug-in.png)
-
-Install from `cortex-plugin/` (after `bun run build:plugin`):
-
-- **Hooks:** capture before compaction, recall at session start
-- **MCP:** Cortex memory tools on stdio
-- **Skill:** `cortex-memory` usage patterns
-
-Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`.
 
 ---
 
