@@ -14,15 +14,6 @@
 | **Source** | https://github.com/LingSiewWin/Cortex |
 | **Chain** | [Arkiv Braga testnet](https://explorer.braga.hoodi.arkiv.network/) · chainId `60138453102` |
 
-### For judges (start here)
-
-| Doc | Purpose |
-|-----|---------|
-| **[docs/submission/SUBMISSION.md](./docs/submission/SUBMISSION.md)** | Theme, links, elevator pitch, entity types |
-| **[docs/submission/JUDGES.md](./docs/submission/JUDGES.md)** | 5-minute code tour + repo map |
-| **[docs/submission/pitch.md](./docs/submission/pitch.md)** | 3-minute judge script |
-| **[docs/submission/JUDGE_DEFENSE.md](./docs/submission/JUDGE_DEFENSE.md)** | Q&A (ERC skips, market honesty, vs MemGPT) |
-
 One repo — not a monorepo. `app/` + `src/` + `cortex-plugin/` ship together.
 
 ---
