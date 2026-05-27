@@ -75,8 +75,6 @@ bun run dev             # http://localhost:3000  →  /console
 | `NEXT_PUBLIC_BRAGA_RPC` | Optional | Default: Braga HTTP RPC from `src/constants.ts` |
 | `CORTEX_MIRROR_PATH` | Optional | SQLite mirror path (default `./cortex-mirror.sqlite`) |
 
-Never commit `.env`. See `.env.example` for the full list.
-
 ---
 
 ## Architecture
@@ -195,57 +193,19 @@ Config templates: `cortex-plugin/.mcp.json`, `hooks/hooks.json`.
 
 ---
 
-## Deploy (Vercel)
-
-**Production:** https://cortex-arkiv.vercel.app  
-**Console:** https://cortex-arkiv.vercel.app/console
-
-```bash
-bun run build
-```
-
-Set env vars in the Vercel project (same as local). `vercel.json` pins **Next.js** + `outputDirectory: dist` (must match `distDir` in `next.config.ts`). Landing video copies from `assets/` during `bun run build`.
-
-If a deploy **fails**, production stays on the last **Ready** build — check the Vercel dashboard or `vercel ls`. A green build log is not enough; the deployment must finish without the “output directory not found” error.
-
-Background workers (`CORTEX_AUTONOMOUS_LOOP`, anchor drain, evict watcher) are **off** on Vercel unless `CORTEX_START_WORKERS=1`. The console UI and browser-signed uploads still work on the hosted URL.
-
----
-
 ## Sovereignty proof
 
-```bash
-bun scripts/sovereignty-proof.ts
-```
-
-Kill backend → wipe local mirror → rebuild from **public** Arkiv RPC with **only** your wallet → recall decrypts; without the wallet, ciphertext stays unreadable.
-
-Example Braga round-trip: [explorer tx](https://explorer.braga.hoodi.arkiv.network/tx/0x6c391af1fa9f9faa952b793980e2b657b33d724298b15a4b7e5fc174543828a2).
+`bun scripts/sovereignty-proof.ts` · [Braga round-trip](https://explorer.braga.hoodi.arkiv.network/tx/0x6c391af1fa9f9faa952b793980e2b657b33d724298b15a4b7e5fc174543828a2)
 
 ---
 
-## Troubleshooting
+## Reference
 
-| Symptom | Fix |
-|---------|-----|
-| Upload stuck on “Storing…” | Switch wallet to Braga; fund GLM ([faucet](https://braga.hoodi.arkiv.network/faucet/)); check `OPENROUTER_API_KEY` / `COHERE_API_KEY` |
-| `embedText: … API key` | Set embedding provider in `.env` |
-| `extend reverted: newBtl <= currentBtl` | Use accumulative extend in `src/darwinian/extend.ts` |
-| Stuck nonce on Braga | Cancel/speed up pending tx in wallet |
-| Smoke test hangs | `bun run faucet-check`; fund session key |
-| API 500 on Vercel | Mirror/workers need SQLite — use local `bun run dev` for full autonomous loop |
-
-**Braga links**
-
-- Explorer: https://explorer.braga.hoodi.arkiv.network/
-- Faucet: https://braga.hoodi.arkiv.network/faucet/
-- RPC: `https://braga.hoodi.arkiv.network/rpc`
-
----
-
-## Security (public deployment)
-
-`/api/citation/manual` and `/api/loop/control` are **unauthenticated** on the hosted URL for frictionless exploration (spend guard + rate limits only). For production, gate writes behind the SIWE `cortex_session` cookie and cap session-key funding.
+| | Link |
+|---|------|
+| **Explorer** | https://explorer.braga.hoodi.arkiv.network/ |
+| **Faucet** | https://braga.hoodi.arkiv.network/faucet/ |
+| **RPC** | `https://braga.hoodi.arkiv.network/rpc` |
 
 ---
 
