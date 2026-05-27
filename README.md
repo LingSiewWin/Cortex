@@ -144,24 +144,26 @@ sequenceDiagram
 
 ## Repo map
 
-| Path | Contents |
-|------|----------|
-| `app/` | Next.js routes: `/`, `/console`, `/api/[[...path]]`, `/sse` |
-| `lib/web/` | AppKit providers, connect gate, browser upload hook |
-| `ui/` | Landing, console, MemoryGraph, upload UI |
-| `src/lib/` | Arkiv client, crypto, sealing, Braga preflight |
-| `src/compression/` | RaBitQ + embeddings + document payloads |
-| `src/darwinian/` | extend, recall, citation, distill |
-| `src/mirror/` | SQLite schema, replay, MMR, anchor, evict watcher |
-| `src/topology/` | Graph builder for `/api/topology` |
-| `src/api/` | HTTP handlers (auth, store-file, seed, …) |
-| `src/agent/` | Autonomous loop, anchor worker |
-| `src/mcp/` | MCP server for agent tooling |
-| `src/obsidian/` | Vault → mirror sync |
-| `cortex-plugin/` | Claude Code plugin (hooks, MCP, skills) |
-| `scripts/` | seed, cite-flow, sovereignty-proof, plugin build |
-| `tests/` | Offline + smoke/canary against Braga |
-| `contracts/` | `CortexRegistry.sol` (+ `SynapticMarket.sol` deferred — no escrow on Braga) |
+```
+|__
+|___ app/              Next.js — `/`, `/console`, `/api/[[...path]]`, `/sse`
+|___ lib/web/          AppKit, connect gate, browser upload hook
+|___ ui/               Landing, console, MemoryGraph, upload UI
+|___ src/
+|    |___ lib/         Arkiv client, crypto, sealing, Braga preflight
+|    |___ compression/ RaBitQ, embeddings, document payloads
+|    |___ darwinian/    extend, recall, citation, distill
+|    |___ mirror/      SQLite schema, replay, MMR, anchor, evict watcher
+|    |___ topology/    Graph builder for `/api/topology`
+|    |___ api/         HTTP handlers (auth, store-file, seed, …)
+|    |___ agent/       Autonomous loop, anchor worker
+|    |___ mcp/         MCP server for agent tooling
+|    |___ obsidian/    Vault → mirror sync
+|___ cortex-plugin/    Claude Code plugin (hooks, MCP, skills)
+|___ scripts/          seed, cite-flow, sovereignty-proof, plugin build
+|___ tests/            Offline + smoke/canary against Braga
+|___ contracts/        CortexRegistry.sol (+ SynapticMarket.sol deferred on Braga)
+```
 
 ---
 
