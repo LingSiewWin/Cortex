@@ -113,6 +113,18 @@ See **[scripts/README.md](./scripts/README.md)** for the full script list (Braga
 | `NEXT_PUBLIC_BRAGA_RPC` | Optional | Default: Braga HTTP RPC from `src/constants.ts` |
 | `CORTEX_MIRROR_PATH` | Optional | SQLite mirror path (default `./cortex-mirror.sqlite`) |
 
+### Production (Vercel)
+
+Set these in the [Vercel project](https://cortex-arkiv.vercel.app) → **Settings → Environment Variables** (Production + Preview as needed):
+
+- `OPENROUTER_API_KEY` or `COHERE_API_KEY`
+- `SESSION_KEY_PRIVATE_KEY` (fund on [Braga faucet](https://braga.hoodi.arkiv.network/faucet/))
+- `USER_PRIMARY_ADDRESS`
+- `CORTEX_USER_SIGNATURE` (from `bun run cortex-auth` or `bun run derive-user-signature`)
+- Redeploy after env changes
+
+Fund session key via Braga faucet before demo.
+
 ---
 
 ## Architecture
@@ -202,6 +214,8 @@ sequenceDiagram
 ## Sovereignty proof
 
 `bun scripts/sovereignty-proof.ts` · [Braga round-trip](https://explorer.braga.hoodi.arkiv.network/tx/0x6c391af1fa9f9faa952b793980e2b657b33d724298b15a4b7e5fc174543828a2)
+
+See [`docs/proof/`](./docs/proof/) for script-generated explorer links.
 
 ---
 
