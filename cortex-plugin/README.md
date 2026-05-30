@@ -32,14 +32,27 @@ decrypt your memory from the public Arkiv RPC. No key escrow.
 
 ## Install
 
-This plugin lives inside the Cortex repo and reuses the repo's engine
-(`../src`) and hook scripts (`../scripts`), so install it from a checkout of the
-repo:
+### Marketplace (recommended)
+
+In Claude Code:
+
+```text
+/plugin marketplace add LingSiewWin/Cortex
+/plugin install cortex-memory
+cortex auth
+```
+
+Fund the printed session key on the [Braga faucet](https://braga.hoodi.arkiv.network/faucet/) before Arkiv writes. Requires **`bun`** on your PATH.
+
+### From a clone
 
 ```bash
-# from the repo root
-bun install                     # install the engine's dependencies first
+git clone https://github.com/LingSiewWin/Cortex.git
+cd Cortex
+bun install
+bun run build:plugin
 claude plugin install --plugin-dir ./cortex-plugin
+cortex auth
 ```
 
 Or point Claude Code at it directly when launching:
@@ -48,10 +61,13 @@ Or point Claude Code at it directly when launching:
 claude --plugin-dir ./cortex-plugin
 ```
 
-> The hooks invoke `bun ${CLAUDE_PLUGIN_ROOT}/../scripts/cortex-hook-*.ts` and
-> the MCP server at `${CLAUDE_PLUGIN_ROOT}/../src/mcp/server.ts`, so the plugin
-> directory must stay nested in the Cortex repo (it depends on the engine in the
-> sibling `src/`). `bun` must be on your `PATH`.
+The plugin ships self-contained **dist** bundles for hooks, MCP, and auth
+(`dist/cortex-hook-*.js`, `dist/cortex-mcp.js`, `dist/cortex-auth.js`) — marketplace
+installs do not need the sibling `../src` tree at runtime. Clone-based installs must
+run `bun run build:plugin` to produce those bundles.
+
+**MCP without the plugin:** `bun run mcp` from the repo root (stdio server for Cursor
+and other MCP clients).
 
 ## Required environment
 

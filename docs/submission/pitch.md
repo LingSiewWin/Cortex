@@ -332,8 +332,8 @@ The rule is the same in the Claude plugin."
 "The real product is **Claude Code + our plugin**. Your Obsidian vault or repo notes sync
 to Arkiv. Before a decision the agent **recalls** — searches these memories. After, it
 **acts** and must list which memory IDs it actually used — no fake citations. Useful
-memories accumulate lease time; useless ones decay. Integrate with `bun run mcp` from the
-repo — not a fake npm package name."
+memories accumulate lease time; useless ones decay. Install via marketplace **`LingSiewWin/Cortex`**
+→ `cortex-memory` → `cortex auth`; or `bun run mcp` from a clone — not a fake npm package."
 
 **Do NOT:**  
 - Scroll to **Live install path** / `plugin install` unless you have 5 seconds and want one flash  
@@ -475,8 +475,9 @@ the rotation pool, not your repo.
 
 **Say:**  
 "Real usage: notes from Obsidian or your repo sync to Arkiv. Install the Cortex plugin in
-Claude Code — **recall** before you decide, **act** with the memories you used. Repo has
-`bun run mcp` and `extensions/memory-arkiv`. This console proves one note on Braga."
+Claude Code — `/plugin marketplace add LingSiewWin/Cortex`, `/plugin install cortex-memory`,
+`cortex auth` — then **recall** before you decide, **act** with the memories you used. No npm
+package; fallback is `bun run mcp` from a clone. This console proves one note on Braga."
 
 ---
 
@@ -545,7 +546,7 @@ Unused memories → expiry → dropped on Arkiv (no forever storage)
 |-------|-------|----------|
 | Only see tx hash | Hash = receipt; text in **document** | B-roll: dev inspector with full README |
 | Judge mode no inspector | Upload stops at hash | Say "text in plugin/recall"; show dev b-roll |
-| `npx @cortex-network/mcp-server` | **Not on npm** | Only **`bun run mcp`** |
+| `npx @cortex-network/mcp-server` | **Not on npm** | Marketplace: `/plugin marketplace add LingSiewWin/Cortex` → `/plugin install cortex-memory` → `cortex auth`; fallback **`bun run mcp`** from clone |
 | Autonomous agent = Claude? | Server robot, canned queries | Say **"live cite judge"** |
 | "Download my PNG back" | Only hash + caption | One sentence: images are index only |
 
@@ -602,7 +603,7 @@ bun run dev    # http://localhost:3000/console — best for live cite strip
 | Don't say | Why |
 |-----------|-----|
 | "Download any file from Arkiv" | Images = hash + caption; **.md** = full text |
-| `npx @cortex-network/mcp-server` | Use **`bun run mcp`** from repo |
+| `npx @cortex-network/mcp-server` | Marketplace **`cortex-memory`** plugin + `cortex auth`, or **`bun run mcp`** from clone |
 | Autonomous strip = Claude | It's a **server cite judge** |
 | Autonomous loop always on Vercel | Say **local dev** for full loop |
 | Permanent / forever storage | *Expiration*, *lease*, *decay* |
@@ -619,7 +620,7 @@ bun run dev    # http://localhost:3000/console — best for live cite strip
 | **RaBitQ HUD** | Compression of **search vectors**, not your PNG |
 | **Agent budget** | GLM left for **session-key judge agent** in `.env` |
 | **Last recall** | Latest canned question in the **judge loop** |
-| **Install strip** | `plugin install cortex` → `cortex auth` → `bun run mcp` |
+| **Install strip** | `/plugin marketplace add LingSiewWin/Cortex` → `/plugin install cortex-memory` → `cortex auth`; fallback `bun run mcp` from clone |
 
 ---
 
@@ -733,7 +734,7 @@ This console is the proof booth. Each dot is a memory — brighter means more ex
 
 **Say:**
 
-“Same engine you just watched — drop sovereign, decay-aware memory into your stack. **Integrate Cortex**: MCP for Claude Desktop, Cursor, Cline — `npx @cortex-network/mcp-server` with your wallet, or `bun run mcp` from the repo. **OpenClaw** tab too. Tools: `cortex_recall`, `cortex_act`, `cortex_store_document`.”
+“Same engine you just watched — drop sovereign, decay-aware memory into your stack. **Integrate Cortex**: Claude Code marketplace **`LingSiewWin/Cortex`** → `/plugin install cortex-memory` → `cortex auth`; or `bun run mcp` from a repo clone for Cursor and other MCP clients. **OpenClaw** tab too. Tools: `cortex_recall`, `cortex_act`, `cortex_store_document`.”
 
 ---
 
