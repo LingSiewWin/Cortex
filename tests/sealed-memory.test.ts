@@ -13,6 +13,9 @@
  */
 
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { join } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import type { Hex } from "@arkiv-network/sdk";
 import { recall, _resetLastRecallIds, type RecallCandidate } from "../src/darwinian/recall";
 import {
@@ -20,6 +23,8 @@ import {
   _resetPayloadKey,
   getPayloadKey,
 } from "../src/lib/payload-key";
+import { _resetConfigCache } from "../src/lib/cortex-config";
+import { _resetOwnerIdentity } from "../src/agent/owner-identity";
 import { derivePayloadKey, sealPayload, openPayload } from "../src/lib/crypto";
 import { rabitqEncode, packCode } from "../src/compression/rabitq";
 import { SEALED_CONTENT_TYPE, ENTITY_TYPE } from "../src/constants";
@@ -80,14 +85,30 @@ function deps(candidates: RecallCandidate[], queryVec: Float32Array) {
   };
 }
 
+// Hermetic config: an empty temp CORTEX_CONFIG_PATH so getPayloadKey() (via the
+// owner-identity singleton) doesn't derive a key from the developer's real
+// ~/.cortex/config.json. Without this, the "payload key is null" negative control
+// fails on any machine where `cortex auth` has run.
+let cfgDir: string;
+const SAVED_CONFIG_PATH = process.env.CORTEX_CONFIG_PATH;
+
 beforeEach(() => {
+  cfgDir = mkdtempSync(join(tmpdir(), "cortex-seal-"));
+  process.env.CORTEX_CONFIG_PATH = join(cfgDir, "config.json"); // never created → absent
   _resetPayloadKey();
+  _resetOwnerIdentity();
+  _resetConfigCache();
   _resetLastRecallIds();
   delete process.env.CORTEX_USER_SIGNATURE;
   delete process.env.CORTEX_USER_PRIVATE_KEY;
 });
 afterEach(() => {
+  if (SAVED_CONFIG_PATH === undefined) delete process.env.CORTEX_CONFIG_PATH;
+  else process.env.CORTEX_CONFIG_PATH = SAVED_CONFIG_PATH;
+  rmSync(cfgDir, { recursive: true, force: true });
   _resetPayloadKey();
+  _resetOwnerIdentity();
+  _resetConfigCache();
   delete process.env.CORTEX_USER_SIGNATURE;
   delete process.env.CORTEX_USER_PRIVATE_KEY;
 });

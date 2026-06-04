@@ -6,6 +6,9 @@
  */
 
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { join } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "@arkiv-network/sdk";
 import {
@@ -13,6 +16,7 @@ import {
   getEffective,
   _resetOwnerIdentity,
 } from "../src/agent/owner-identity";
+import { _resetConfigCache } from "../src/lib/cortex-config";
 import { keyDerivationMessage } from "../src/lib/derivation-message";
 
 const PK_A = ("0x" + "11".repeat(32)) as Hex;
@@ -27,17 +31,30 @@ const SAVED_ENV = {
   CORTEX_USER_PRIVATE_KEY: process.env.CORTEX_USER_PRIVATE_KEY,
 };
 
+// Hermetic config: point CORTEX_CONFIG_PATH at an empty temp dir so readConfig()
+// returns null instead of leaking the developer's real ~/.cortex/config.json
+// (which exists after `cortex auth` and otherwise supplies an owner/signature).
+let cfgDir: string;
+const SAVED_CONFIG_PATH = process.env.CORTEX_CONFIG_PATH;
+
 beforeEach(() => {
+  cfgDir = mkdtempSync(join(tmpdir(), "cortex-oid-"));
+  process.env.CORTEX_CONFIG_PATH = join(cfgDir, "config.json"); // never created → absent
   delete process.env.USER_PRIMARY_ADDRESS;
   delete process.env.CORTEX_USER_SIGNATURE;
   delete process.env.CORTEX_USER_PRIVATE_KEY;
+  _resetConfigCache();
   _resetOwnerIdentity();
 });
 
 afterEach(() => {
+  if (SAVED_CONFIG_PATH === undefined) delete process.env.CORTEX_CONFIG_PATH;
+  else process.env.CORTEX_CONFIG_PATH = SAVED_CONFIG_PATH;
   if (SAVED_ENV.USER_PRIMARY_ADDRESS !== undefined) process.env.USER_PRIMARY_ADDRESS = SAVED_ENV.USER_PRIMARY_ADDRESS;
   if (SAVED_ENV.CORTEX_USER_SIGNATURE !== undefined) process.env.CORTEX_USER_SIGNATURE = SAVED_ENV.CORTEX_USER_SIGNATURE;
   if (SAVED_ENV.CORTEX_USER_PRIVATE_KEY !== undefined) process.env.CORTEX_USER_PRIVATE_KEY = SAVED_ENV.CORTEX_USER_PRIVATE_KEY;
+  rmSync(cfgDir, { recursive: true, force: true });
+  _resetConfigCache();
   _resetOwnerIdentity();
 });
 
