@@ -25,7 +25,7 @@
 
 import type { Hex } from "@arkiv-network/sdk";
 import { bytesToHex } from "viem";
-import { embedText } from "../compression/embeddings.ts";
+import { embedText, isMissingEmbeddingKey } from "../compression/embeddings.ts";
 import { rabitqInnerProduct, unpackCode, rabitqEncode, packCode } from "../compression/rabitq.ts";
 import { decodeDocumentPayload } from "../compression/document-payload.ts";
 import { ENTITY_TYPE, SEALED_CONTENT_TYPE, UTILITY, WORKSPACE_ATTR } from "../constants.ts";
@@ -270,25 +270,38 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
 
   // Embed once. Rule scoring doesn't need the embedding, but we do it eagerly
   // because most candidates will be observation/episode in steady state.
-  const queryEmbedding = await embed(opts.query);
+  // No embeddings key → degrade to keyword/text-overlap scoring rather than
+  // throwing, so the plugin stays useful for a fresh installer with no provider
+  // key (rules + documents still recall by keyword; pure-vector observations
+  // simply can't match without an embedding).
+  let queryEmbedding: Float32Array | null = null;
+  try {
+    queryEmbedding = await embed(opts.query);
+  } catch (err) {
+    if (!isMissingEmbeddingKey(err)) throw err;
+    queryEmbedding = null;
+  }
 
   // Live spine: the query is RaBitQ-encoded with the same 1-bit codec the
   // corpus uses (we keep the raw embedding for full-precision scoring, but the
   // encode is real). This keeps the RaBitQ tile live on every recall, not just
   // on memory creation. Best-effort — never let instrumentation break recall.
-  try {
-    const t0 = performance.now();
-    const packed = packCode(rabitqEncode(queryEmbedding));
-    publish({
-      type: "rabitq.encoded",
-      ts: Date.now(),
-      dim: queryEmbedding.length,
-      bytes: packed.byteLength,
-      ratio: (queryEmbedding.length * 4) / packed.byteLength,
-      ms: performance.now() - t0,
-    });
-  } catch {
-    /* instrumentation only — ignore */
+  // Skipped in keyword-only mode (no embedding to encode).
+  if (queryEmbedding) {
+    try {
+      const t0 = performance.now();
+      const packed = packCode(rabitqEncode(queryEmbedding));
+      publish({
+        type: "rabitq.encoded",
+        ts: Date.now(),
+        dim: queryEmbedding.length,
+        bytes: packed.byteLength,
+        ratio: (queryEmbedding.length * 4) / packed.byteLength,
+        ms: performance.now() - t0,
+      });
+    } catch {
+      /* instrumentation only — ignore */
+    }
   }
 
   const candidates = await fetchCandidates(opts.entityType, opts.project);
@@ -338,30 +351,39 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
       if (raw) {
         try {
           const doc = decodeDocumentPayload(raw);
-          // Stage 1: best 1-bit estimate across whole-note + sections.
-          let stage1 = 0;
-          try {
-            stage1 = rabitqInnerProduct(queryEmbedding, unpackCode(doc.code));
-          } catch {
-            /* ignore */
-          }
-          let bestOffset = 0;
-          for (const s of doc.sections) {
+          if (!queryEmbedding) {
+            // Keyword-only mode (no embeddings key): score the recovered note
+            // text directly via text overlap. The note is stored losslessly, so
+            // documents still recall without a provider key.
+            score = textOverlapScore(opts.query, doc.text);
+            docText = doc.text;
+            preview = doc.text.slice(0, PREVIEW_LIMIT);
+          } else {
+            // Stage 1: best 1-bit estimate across whole-note + sections.
+            let stage1 = 0;
             try {
-              const ss = rabitqInnerProduct(queryEmbedding, unpackCode(s.code));
-              if (ss > stage1) {
-                stage1 = ss;
-                bestOffset = s.offset;
-              }
+              stage1 = rabitqInnerProduct(queryEmbedding, unpackCode(doc.code));
             } catch {
-              /* ignore bad section */
+              /* ignore */
             }
+            let bestOffset = 0;
+            for (const s of doc.sections) {
+              try {
+                const ss = rabitqInnerProduct(queryEmbedding, unpackCode(s.code));
+                if (ss > stage1) {
+                  stage1 = ss;
+                  bestOffset = s.offset;
+                }
+              } catch {
+                /* ignore bad section */
+              }
+            }
+            // Stage 2: full-precision cosine rerank (the score we actually use).
+            score = cosineF32(queryEmbedding, doc.rerankEmbedding);
+            if (!Number.isFinite(score) || score === 0) score = stage1;
+            docText = doc.text;
+            preview = doc.text.slice(bestOffset, bestOffset + PREVIEW_LIMIT);
           }
-          // Stage 2: full-precision cosine rerank (the score we actually use).
-          score = cosineF32(queryEmbedding, doc.rerankEmbedding);
-          if (!Number.isFinite(score) || score === 0) score = stage1;
-          docText = doc.text;
-          preview = doc.text.slice(bestOffset, bestOffset + PREVIEW_LIMIT);
         } catch {
           score = 0;
         }
@@ -384,8 +406,9 @@ export async function recall(opts: RecallOptions): Promise<MemoryHit[]> {
         }
       }
     } else {
-      // observation | episode — RaBitQ packed bytes.
-      if (raw && raw.length === RABITQ_PACK_SIZE) {
+      // observation | episode — RaBitQ packed bytes. Need the query embedding;
+      // in keyword-only mode these have no plaintext to match, so they score 0.
+      if (queryEmbedding && raw && raw.length === RABITQ_PACK_SIZE) {
         try {
           const code = unpackCode(raw);
           score = rabitqInnerProduct(queryEmbedding, code);
