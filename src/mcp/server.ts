@@ -38,6 +38,7 @@ import { act } from "../darwinian/citation.ts";
 import { createDocumentMemory } from "../lib/batch-writer.ts";
 import { storeSessionSummary } from "../agent/session-summary.ts";
 import { embedText, isMissingEmbeddingKey } from "../compression/embeddings.ts";
+import { resolveCredentials } from "../lib/credentials.ts";
 import { BRAGA } from "../constants.ts";
 
 const VERSION = "0.1.0";
@@ -99,7 +100,7 @@ server.registerTool(
     title: "Cortex act",
     description:
       "Record a decision and cite the memories that informed it. Each valid " +
-      "citation fires an accumulative lease extension (remaining + reinforcement) " +
+      "citation fires an accumulative lease extension (+24h per citation) " +
       "so useful memories survive and the rest decay for free. Citations are " +
       "validated against the most recent cortex_recall in this session.",
     inputSchema: {
@@ -110,14 +111,19 @@ server.registerTool(
     },
   },
   async ({ action, citations }) => {
-    const userPrimaryEOA = process.env.USER_PRIMARY_ADDRESS as Hex | undefined;
+    // Owner EOA resolves env → ~/.cortex/config.json (written by `cortex auth`).
+    // Previously env-only, which broke cortex_act for every fresh installer.
+    const userPrimaryEOA = (resolveCredentials().ownerEOA ?? undefined) as Hex | undefined;
     if (!userPrimaryEOA) {
       return {
         isError: true,
         content: [
           {
             type: "text" as const,
-            text: "cortex_act unavailable: USER_PRIMARY_ADDRESS is not set. Cortex needs the owner EOA to attribute tier promotions.",
+            text:
+              "cortex_act unavailable: no owner wallet. Run `cortex auth` (writes your " +
+              "owner address to ~/.cortex/config.json) or set USER_PRIMARY_ADDRESS. " +
+              "Cortex needs the owner EOA to attribute tier promotions.",
           },
         ],
       };
