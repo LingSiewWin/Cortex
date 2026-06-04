@@ -23,28 +23,27 @@
 import type { Hex } from "@arkiv-network/sdk";
 import { privateKeyToAccount } from "@arkiv-network/sdk/accounts";
 import { derivePayloadKey, keyDerivationMessage } from "./crypto.ts";
-import { readConfig } from "./cortex-config.ts";
+import { resolveCredentials } from "./credentials.ts";
 
 // `undefined` = not yet resolved; `null` = resolved, no wallet material.
 let _cached: CryptoKey | null | undefined;
 
-const SIG_RE = /^0x[0-9a-fA-F]+$/;
-const PK_RE = /^0x[0-9a-fA-F]{64}$/;
-
 async function resolveSignature(): Promise<Hex | null> {
-  const sig = process.env.CORTEX_USER_SIGNATURE;
-  if (sig && SIG_RE.test(sig)) return sig as Hex;
+  const creds = resolveCredentials();
 
-  const pk = process.env.CORTEX_USER_PRIVATE_KEY;
-  if (pk && PK_RE.test(pk)) {
-    const account = privateKeyToAccount(pk as Hex);
+  // Precedence preserved: env signature > env private-key (sign in-process) > config signature.
+  // 1. Explicit signature from env — the fresh-machine "Proof of Sovereignty" path.
+  if (creds.source.signature === "env") return creds.userSignature as Hex;
+
+  // 2. Dev convenience: sign the derivation message with the primary private key.
+  if (creds.userPrivateKey) {
+    const account = privateKeyToAccount(creds.userPrivateKey as Hex);
     const message = keyDerivationMessage(account.address);
     return (await account.signMessage({ message })) as Hex;
   }
 
-  // Fallback: the signature `cortex auth` captured into ~/.cortex/config.json.
-  const cfgSig = readConfig()?.userSignature;
-  if (cfgSig && SIG_RE.test(cfgSig)) return cfgSig as Hex;
+  // 3. Signature `cortex auth` captured into ~/.cortex/config.json.
+  if (creds.source.signature === "config") return creds.userSignature as Hex;
 
   return null;
 }

@@ -28,7 +28,7 @@ import type { Attribute } from "@arkiv-network/sdk/types";
 import { eq } from "@arkiv-network/sdk/query";
 import { PROJECT_ATTRIBUTE, BRAGA } from "../constants";
 import { publish, type ArkivRpcMethod } from "./events";
-import { readConfig } from "./cortex-config";
+import { resolveCredentials } from "./credentials";
 
 // ---------------------------------------------------------------------------
 // Singletons
@@ -60,8 +60,9 @@ export function getPublicClient(): PublicArkivClient {
 export function getWalletClient(): WalletArkivClient {
   if (_walletClient) return _walletClient;
 
-  // env wins; else the session key `cortex auth` generated into ~/.cortex/config.json
-  const pk = process.env.SESSION_KEY_PRIVATE_KEY ?? readConfig()?.sessionKeyPrivate;
+  // env wins; else the session key `cortex auth` generated into ~/.cortex/config.json.
+  // Resolution centralized in resolveCredentials() (already validates 0x+64hex).
+  const pk = resolveCredentials().sessionKeyPrivate;
   if (!pk) {
     throw new Error(
       "No session key. Run `cortex auth` (connect your wallet) — or set " +
@@ -86,6 +87,16 @@ export function getWalletClient(): WalletArkivClient {
     account: privateKeyToAccount(pk as Hex),
   });
   return _walletClient;
+}
+
+/**
+ * Test seam: drop the memoized public + wallet clients so the next access
+ * re-resolves the session key from env/config. Mirrors `_resetPayloadKey` /
+ * `_resetOwnerIdentity`. Production code never calls this.
+ */
+export function _resetArkivClients(): void {
+  _publicClient = undefined;
+  _walletClient = undefined;
 }
 
 /** The address of the active session-key EOA (the `$creator` for everything we write). */
@@ -121,18 +132,8 @@ function parseEoaAddress(v: string | undefined): Hex | null {
 
 /** Resolve $owner from env, cortex auth config, or CORTEX_USER_PRIVATE_KEY. */
 function resolveUserPrimaryEOA(): Hex | null {
-  const fromEnv = parseEoaAddress(process.env.USER_PRIMARY_ADDRESS);
-  if (fromEnv) return fromEnv;
-
-  const fromConfig = parseEoaAddress(readConfig()?.ownerAddress);
-  if (fromConfig) return fromConfig;
-
-  const pk = process.env.CORTEX_USER_PRIVATE_KEY;
-  if (pk && /^0x[0-9a-fA-F]{64}$/.test(pk)) {
-    return privateKeyToAccount(pk as Hex).address;
-  }
-
-  return null;
+  // Centralized in resolveCredentials() (env → config → derive from primary key).
+  return (resolveCredentials().ownerEOA as Hex | null) ?? null;
 }
 
 export function getUserPrimaryEOA(): Hex {
