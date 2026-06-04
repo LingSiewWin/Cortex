@@ -305,12 +305,18 @@ test("POST /api/auth/adopt 401 without SIWE cookie", async () => {
 
 test("GET /api/auth/me returns source 'none' when nothing set", async () => {
   const { _resetOwnerIdentity } = await import("../src/agent/owner-identity");
+  const { _resetConfigCache } = await import("../src/lib/cortex-config");
   const savedUser = process.env.USER_PRIMARY_ADDRESS;
   const savedSig = process.env.CORTEX_USER_SIGNATURE;
   const savedPk = process.env.CORTEX_USER_PRIVATE_KEY;
+  const savedCfg = process.env.CORTEX_CONFIG_PATH;
   delete process.env.USER_PRIMARY_ADDRESS;
   delete process.env.CORTEX_USER_SIGNATURE;
   delete process.env.CORTEX_USER_PRIVATE_KEY;
+  // Hermetic: point config at an absent path so readConfig() doesn't resolve the
+  // owner from the dev's real ~/.cortex/config.json (now a config fallback).
+  process.env.CORTEX_CONFIG_PATH = "/nonexistent/cortex-auth-me-none/config.json";
+  _resetConfigCache();
   _resetOwnerIdentity();
   const { handleAuthMe } = await import("../src/api/auth-adopt");
   const res = await handleAuthMe(new Request("http://localhost/api/auth/me"));
@@ -321,5 +327,8 @@ test("GET /api/auth/me returns source 'none' when nothing set", async () => {
   if (savedUser !== undefined) process.env.USER_PRIMARY_ADDRESS = savedUser;
   if (savedSig !== undefined) process.env.CORTEX_USER_SIGNATURE = savedSig;
   if (savedPk !== undefined) process.env.CORTEX_USER_PRIVATE_KEY = savedPk;
+  if (savedCfg === undefined) delete process.env.CORTEX_CONFIG_PATH;
+  else process.env.CORTEX_CONFIG_PATH = savedCfg;
+  _resetConfigCache();
   _resetOwnerIdentity();
 });

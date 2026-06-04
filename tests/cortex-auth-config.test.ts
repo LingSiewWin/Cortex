@@ -110,7 +110,8 @@ test("env→config fallback: hasEmbeddingKey true from config", async () => {
   const { writeConfig, _resetConfigCache } = await import("../src/lib/cortex-config.ts");
   const { hasEmbeddingKey } = await import("../src/compression/embeddings.ts");
   expect(hasEmbeddingKey()).toBe(false); // nothing set yet
-  writeConfig({ embeddingKey: "sk-x", embeddingProvider: "openai" });
+  // Key must be ≥16 chars and not a placeholder to pass isUsableEmbeddingKey.
+  writeConfig({ embeddingKey: "sk-test-abcdef0123456789", embeddingProvider: "openai" });
   _resetConfigCache();
   expect(hasEmbeddingKey()).toBe(true);
 });
