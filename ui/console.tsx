@@ -23,6 +23,7 @@ import { AllowanceCard } from "./components/AllowanceCard";
 import { ProofPlayground } from "./components/ProofPlayground";
 import { GraphHero } from "./components/GraphHero";
 import { PluginInstallStrip } from "./components/PluginInstallStrip";
+import { LocalFirstPanel } from "./components/LocalFirstPanel";
 import { WalletUpload } from "./components/WalletUpload";
 import MemoryGraph from "./components/MemoryGraph/MemoryGraph";
 import { DecisionTimeline } from "./components/DecisionTimeline";
@@ -143,6 +144,9 @@ function ConsoleApp() {
   const [inspectErr, setInspectErr] = useState<string | null>(null);
   const [mode, setMode] = useState<ConsoleMode>(() => readInitialMode());
   const [effectiveOwner, setEffectiveOwner] = useState<Hex | null>(null);
+  // null = not yet probed; true = the autonomous loop is configured on this
+  // server (local dev); false = no live backend (the serverless deploy state).
+  const [loopConfigured, setLoopConfigured] = useState<boolean | null>(null);
 
   const onToggleMode = useCallback((next: ConsoleMode) => {
     try {
@@ -175,6 +179,24 @@ function ConsoleApp() {
     return () => {
       alive = false;
       clearInterval(i);
+    };
+  }, []);
+
+  // Probe whether this server runs the autonomous loop. On a serverless deploy
+  // the loop can never be configured (stateful long-running process), so this
+  // stays false and gates the local-first explainer below.
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/loop/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: { configured?: boolean } | null) => {
+        if (alive) setLoopConfigured(s?.configured === true);
+      })
+      .catch(() => {
+        if (alive) setLoopConfigured(false);
+      });
+    return () => {
+      alive = false;
     };
   }, []);
 
@@ -239,6 +261,43 @@ function ConsoleApp() {
     () => recentMemories.slice(0, 12),
     [recentMemories],
   );
+
+  // No-live-backend detection (the serverless deploy state). True only once we
+  // have probed BOTH signals and both say "dead": the autonomous loop is not
+  // configured AND the mirror is empty (zero memories at block 0). While either
+  // probe is still pending we do NOT show the explainer — that avoids a flash
+  // of the panel on a healthy local-dev load. When the backend is live (loop
+  // running OR mirror has data) this is false and the real console renders.
+  const noLiveBackend = useMemo(() => {
+    if (loopConfigured !== false) return false; // not probed, or loop is live
+    const mem = data.memories;
+    if (!mem) return false; // memories not loaded yet — don't flash the panel
+    return mem.currentBlock === 0 && mem.counts.total === 0;
+  }, [loopConfigured, data.memories]);
+
+  if (noLiveBackend) {
+    return (
+      <div className="cx cx-console">
+        <div className="app app-judge">
+          <header className="topbar">
+            <div className="brand">
+              <a href="/" className="back-link mono" title="Cortex landing">
+                Home
+              </a>
+              <span className="brand-dot" aria-hidden />
+              <span>Cortex</span>
+              <span className="tag muted mono">Console</span>
+            </div>
+            <div className="topbar-right">
+              <span className="tag muted mono">local-first</span>
+            </div>
+          </header>
+          <LocalFirstPanel />
+        </div>
+        <CortexFooter />
+      </div>
+    );
+  }
 
   return (
     <div className="cx cx-console">

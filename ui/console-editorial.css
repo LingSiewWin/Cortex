@@ -745,3 +745,170 @@ body:has(.cx-console) {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===========================================================================
+ *  Local-first explainer — shown when there is no live backend (serverless
+ *  deploy). Editorial paper theme, square hairlines, ember accent.
+ * =========================================================================== */
+
+.cx-console .local-first {
+  margin-top: clamp(28px, 6vw, 64px);
+}
+
+.cx-console .local-first-hero {
+  max-width: 64ch;
+  margin-bottom: clamp(28px, 5vw, 48px);
+}
+
+.cx-console .local-first-eyebrow {
+  display: inline-block;
+  color: var(--ember);
+  margin-bottom: 18px;
+}
+
+.cx-console .local-first-title {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5.5vw, 3.4rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+  margin: 0 0 20px;
+  color: var(--ink);
+}
+
+.cx-console .local-first-accent {
+  color: var(--ember);
+}
+
+.cx-console .local-first-lead {
+  font-size: clamp(0.95rem, 1.6vw, 1.06rem);
+  line-height: 1.65;
+  color: #444;
+  margin: 0;
+}
+
+.cx-console .local-first-lead code,
+.cx-console .local-first-hint code,
+.cx-console .local-first-foot code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+}
+
+.cx-console .local-first-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 1px;
+  background: rgba(17, 17, 17, 0.1);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+}
+
+.cx-console .local-first-cell {
+  background: var(--paper);
+  padding: clamp(22px, 3vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cx-console .local-first-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cx-console .local-first-cell-head .mono {
+  color: #999;
+}
+
+.cx-console .local-first-copy {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+  padding: 5px 12px;
+  cursor: pointer;
+  border-radius: 0;
+}
+.cx-console .local-first-copy:hover {
+  border-color: var(--ember);
+  color: var(--ember);
+}
+
+.cx-console .local-first-code {
+  background: #f1f1f3;
+  color: #1a1a1a;
+  border: 1px solid var(--border);
+  padding: 16px 18px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.cx-console .local-first-hint {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #555;
+  margin: 0;
+}
+
+.cx-console .local-first-hint a {
+  color: var(--ember);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.cx-console .local-first-watch {
+  justify-content: space-between;
+}
+
+.cx-console .local-first-watch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  align-self: flex-start;
+  padding: 12px 20px;
+  background: var(--ink);
+  color: var(--paper);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  border: 1px solid var(--ink);
+  transition: background 0.15s ease;
+}
+.cx-console .local-first-watch-btn:hover {
+  background: var(--ember);
+  border-color: var(--ember);
+}
+
+.cx-console .local-first-play {
+  font-size: 10px;
+}
+
+.cx-console .local-first-foot {
+  margin-top: 22px;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.cx-console .local-first-foot code {
+  text-transform: none;
+}
+
+@media (max-width: 760px) {
+  .cx-console .local-first-grid {
+    grid-template-columns: 1fr;
+  }
+}
