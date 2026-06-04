@@ -30,6 +30,19 @@ Memories that get cited grow their lease (accumulative extend); memories that go
 unused decay for free. Same wallet → same key → a fresh machine can re-sync and
 decrypt your memory from the public Arkiv RPC. No key escrow.
 
+## Prerequisites
+
+- **`bun` on your PATH.** The hooks, MCP server, and `cortex auth` run as bundled
+  `bun` scripts over stdio. Install from [bun.sh](https://bun.sh) if you don't have it.
+- **A funded session key on Braga.** `cortex auth` generates a session-key EOA and
+  prints its address. Fund it on the [Braga faucet](https://braga.hoodi.arkiv.network/faucet/)
+  **before** any Arkiv write (store / cite / extend) — an unfunded key cannot pay for
+  the transaction.
+
+There is **no backend to depend on**: everything runs locally in your Claude Code
+on your machine — the MCP server over stdio, a SQLite mirror on your disk, and writes
+signed by your own funded session key.
+
 ## Install
 
 ### Marketplace (recommended)
@@ -69,11 +82,20 @@ run `bun run build:plugin` to produce those bundles.
 **MCP without the plugin:** `bun run mcp` from the repo root (stdio server for Cursor
 and other MCP clients).
 
-## Required environment
+## Configuration
 
-Capture/recall degrade gracefully — without these, summaries queue locally and
-sealed memories simply don't surface (no crash). To actually write to and read
-from Arkiv:
+**After `cortex auth`, no environment variables are required.** `cortex auth` writes
+`~/.cortex/config.json` (your owner wallet address, a generated session-key private
+key, an EIP-191 user signature, and optionally an embeddings key), and the MCP server
+and session hooks read their credentials from that file. Run it once after install and
+you're done.
+
+Capture/recall degrade gracefully — without credentials, summaries queue locally and
+sealed memories simply don't surface (no crash).
+
+The variables below are an **advanced / dev-only override**: if set in the environment
+(or a repo-root `.env`, which Bun auto-loads), they take precedence over
+`~/.cortex/config.json`. A normal plugin user does not need to set any of them.
 
 | Variable | Purpose | Required for |
 |---|---|---|
@@ -84,7 +106,9 @@ from Arkiv:
 | `USER_PRIMARY_ADDRESS` | Owner EOA, used by `cortex_act` to attribute tier promotions. | `cortex_act` |
 | `CORTEX_PLUGIN_DATA_DIR` | Optional. Where queued/pending summaries live. Default: `~/.cortex/plugin`. | — |
 
-Bun auto-loads `.env`, so a `.env` at the repo root is the simplest setup.
+For a normal install, `cortex auth` → `~/.cortex/config.json` is the simplest setup and
+no `.env` is needed. For clone-based dev, Bun auto-loads a repo-root `.env` if you
+prefer to override via env vars.
 
 ## Safety / design notes
 

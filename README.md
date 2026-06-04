@@ -29,9 +29,19 @@ One repo — not a monorepo. `app/` + `src/` + `cortex-plugin/` ship together.
 
 Agent surface: **`recall(query, k)`** and **`act(action, citations[])`** only.
 
-### Live console (`/console`)
+### Where it runs
 
-An autonomous loop (server session key) recalls and cites on a timer; each step emits typed events on **`/sse`**. The UI shows Braga tx links, topology graph, and manual query/cite. **File upload** uses your **browser wallet** on Braga (prepare on server → sign tx in MetaMask).
+**Cortex has no backend you depend on.** The product is the Claude Code plugin: it
+runs **locally** in your agent — the MCP server speaks over stdio via `bun`, the
+SQLite mirror lives on your disk, and writes are signed by **your own funded
+session key**. Nothing requires the maintainer's infrastructure.
+
+The website is a **landing + install + video** surface, not a live autonomous demo.
+The `/console` loop, mirror, and SSE stream are for **local development** (`bun run dev`)
+— they are stateful and long-running, which serverless cannot host, so the public
+deployment does not run them. For the autonomous loop in action, see the
+[video walkthrough](https://www.loom.com/share/68178caad4034e8282ac412a440e0738); for
+real on-chain evidence, see [`docs/proof/`](./docs/proof/).
 
 ---
 
