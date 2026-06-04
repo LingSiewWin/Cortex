@@ -13,7 +13,7 @@ import { verifyMessage, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { derivePayloadKey } from "../lib/crypto";
 import { keyDerivationMessage } from "../lib/derivation-message";
-import { readConfig } from "../lib/cortex-config";
+import { resolveCredentials } from "../lib/credentials";
 
 export type IdentitySource = "env" | "browser" | "none";
 
@@ -25,29 +25,29 @@ export interface IdentityView {
 }
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
-const PK_RE = /^0x[0-9a-fA-F]{64}$/;
 const SIG_RE = /^0x[0-9a-fA-F]+$/;
 
 let _cached: IdentityView | null = null;
 
+/**
+ * Resolve the effective identity from env → ~/.cortex/config.json via the central
+ * resolveCredentials(). The owner address now falls back to config (it was env-only
+ * before — the gap that broke fresh installers). Signature precedence mirrors
+ * payload-key: env signature > env private-key (sign in-process) > config signature.
+ */
 async function resolveFromEnv(): Promise<IdentityView> {
-  const addr = process.env.USER_PRIMARY_ADDRESS;
-  const ownerAddress: Hex | null = addr && ADDR_RE.test(addr) ? (addr as Hex) : null;
+  const creds = resolveCredentials();
+  const ownerAddress = (creds.ownerEOA as Hex | null) ?? null;
 
   let signature: Hex | null = null;
-  const sigEnv = process.env.CORTEX_USER_SIGNATURE;
-  if (sigEnv && SIG_RE.test(sigEnv)) {
-    signature = sigEnv as Hex;
-  } else {
-    const pkEnv = process.env.CORTEX_USER_PRIVATE_KEY;
-    if (pkEnv && PK_RE.test(pkEnv)) {
-      const account = privateKeyToAccount(pkEnv as Hex);
-      const message = keyDerivationMessage(account.address);
-      signature = (await account.signMessage({ message })) as Hex;
-    } else {
-      const cfgSig = readConfig()?.userSignature;
-      if (cfgSig && SIG_RE.test(cfgSig)) signature = cfgSig as Hex;
-    }
+  if (creds.source.signature === "env") {
+    signature = creds.userSignature as Hex;
+  } else if (creds.userPrivateKey) {
+    const account = privateKeyToAccount(creds.userPrivateKey as Hex);
+    const message = keyDerivationMessage(account.address);
+    signature = (await account.signMessage({ message })) as Hex;
+  } else if (creds.source.signature === "config") {
+    signature = creds.userSignature as Hex;
   }
 
   const payloadKey = signature ? await derivePayloadKey(signature) : null;
