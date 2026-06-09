@@ -28,10 +28,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
-# Next.js (distDir: dist in next.config.ts for Vercel output path)
+# Next.js (distDir: dist in next.config.ts for Vercel output path).
+# Anchored to repo root — an unanchored `dist/`/`out/` would also match
+# cortex-plugin/dist (the standalone plugin bundles that MUST ship) and silently
+# drop newly-hashed connect assets from commits + the CI dist-check.
 .next/
-dist/
-out/
+/dist/
+/out/
 
 # Copied at build time from assets/ (see package.json build script)
 public/
