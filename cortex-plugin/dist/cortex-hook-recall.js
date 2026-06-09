@@ -18439,6 +18439,177 @@ var init_events = __esm(() => {
   wrappedListeners = new Set;
 });
 
+// node_modules/viem/_esm/accounts/toAccount.js
+function toAccount(source) {
+  if (typeof source === "string") {
+    if (!isAddress(source, { strict: false }))
+      throw new InvalidAddressError({ address: source });
+    return {
+      address: source,
+      type: "json-rpc"
+    };
+  }
+  if (!isAddress(source.address, { strict: false }))
+    throw new InvalidAddressError({ address: source.address });
+  return {
+    address: source.address,
+    nonceManager: source.nonceManager,
+    sign: source.sign,
+    signAuthorization: source.signAuthorization,
+    signMessage: source.signMessage,
+    signTransaction: source.signTransaction,
+    signTypedData: source.signTypedData,
+    source: "custom",
+    type: "local"
+  };
+}
+var init_toAccount = __esm(() => {
+  init_address();
+  init_isAddress();
+});
+
+// node_modules/viem/_esm/accounts/utils/sign.js
+async function sign({ hash: hash3, privateKey, to = "object" }) {
+  const { r, s, recovery } = secp256k1.sign(hash3.slice(2), privateKey.slice(2), {
+    lowS: true,
+    extraEntropy: isHex(extraEntropy, { strict: false }) ? hexToBytes(extraEntropy) : extraEntropy
+  });
+  const signature = {
+    r: numberToHex(r, { size: 32 }),
+    s: numberToHex(s, { size: 32 }),
+    v: recovery ? 28n : 27n,
+    yParity: recovery
+  };
+  return (() => {
+    if (to === "bytes" || to === "hex")
+      return serializeSignature({ ...signature, to });
+    return signature;
+  })();
+}
+var extraEntropy = false;
+var init_sign = __esm(() => {
+  init_secp256k1();
+  init_toBytes();
+  init_toHex();
+  init_serializeSignature();
+});
+
+// node_modules/viem/_esm/accounts/utils/signAuthorization.js
+async function signAuthorization2(parameters) {
+  const { chainId, nonce, privateKey, to = "object" } = parameters;
+  const address = parameters.contractAddress ?? parameters.address;
+  const signature = await sign({
+    hash: hashAuthorization({ address, chainId, nonce }),
+    privateKey,
+    to
+  });
+  if (to === "object")
+    return {
+      address,
+      chainId,
+      nonce,
+      ...signature
+    };
+  return signature;
+}
+var init_signAuthorization2 = __esm(() => {
+  init_hashAuthorization();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/utils/signMessage.js
+async function signMessage2({ message, privateKey }) {
+  return await sign({ hash: hashMessage(message), privateKey, to: "hex" });
+}
+var init_signMessage2 = __esm(() => {
+  init_hashMessage();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/utils/signTransaction.js
+async function signTransaction2(parameters) {
+  const { privateKey, transaction, serializer = serializeTransaction } = parameters;
+  const signableTransaction = (() => {
+    if (transaction.type === "eip4844")
+      return {
+        ...transaction,
+        sidecars: false
+      };
+    return transaction;
+  })();
+  const signature = await sign({
+    hash: keccak256(await serializer(signableTransaction)),
+    privateKey
+  });
+  return await serializer(transaction, signature);
+}
+var init_signTransaction2 = __esm(() => {
+  init_keccak256();
+  init_serializeTransaction();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/utils/signTypedData.js
+async function signTypedData2(parameters) {
+  const { privateKey, ...typedData } = parameters;
+  return await sign({
+    hash: hashTypedData(typedData),
+    privateKey,
+    to: "hex"
+  });
+}
+var init_signTypedData2 = __esm(() => {
+  init_hashTypedData();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/privateKeyToAccount.js
+function privateKeyToAccount(privateKey, options = {}) {
+  const { nonceManager } = options;
+  const publicKey = toHex(secp256k1.getPublicKey(privateKey.slice(2), false));
+  const address = publicKeyToAddress(publicKey);
+  const account = toAccount({
+    address,
+    nonceManager,
+    async sign({ hash: hash3 }) {
+      return sign({ hash: hash3, privateKey, to: "hex" });
+    },
+    async signAuthorization(authorization) {
+      return signAuthorization2({ ...authorization, privateKey });
+    },
+    async signMessage({ message }) {
+      return signMessage2({ message, privateKey });
+    },
+    async signTransaction(transaction, { serializer } = {}) {
+      return signTransaction2({ privateKey, transaction, serializer });
+    },
+    async signTypedData(typedData) {
+      return signTypedData2({ ...typedData, privateKey });
+    }
+  });
+  return {
+    ...account,
+    publicKey,
+    source: "privateKey"
+  };
+}
+var init_privateKeyToAccount = __esm(() => {
+  init_secp256k1();
+  init_toHex();
+  init_toAccount();
+  init_publicKeyToAddress();
+  init_sign();
+  init_signAuthorization2();
+  init_signMessage2();
+  init_signTransaction2();
+  init_signTypedData2();
+});
+
+// node_modules/viem/_esm/accounts/index.js
+var init_accounts = __esm(() => {
+  init_privateKeyToAccount();
+});
+
 // src/lib/cortex-config.ts
 import { homedir } from "os";
 import { join, dirname } from "path";
@@ -18465,7 +18636,95 @@ function readConfig() {
 var _cached;
 var init_cortex_config = () => {};
 
+// src/lib/credentials.ts
+function validPk(v) {
+  return typeof v === "string" && PK_RE.test(v) ? v : null;
+}
+function validEoa(v) {
+  return typeof v === "string" && EOA_RE.test(v) ? v : null;
+}
+function validSig(v) {
+  return typeof v === "string" && SIG_RE.test(v) ? v : null;
+}
+function deriveAddressFromPk(pk) {
+  try {
+    return privateKeyToAccount(pk).address;
+  } catch {
+    return null;
+  }
+}
+function resolveEmbedding() {
+  const envProviders = [
+    ["OPENAI_API_KEY", "openai"],
+    ["OPENROUTER_API_KEY", "openrouter"],
+    ["VOYAGE_API_KEY", "voyage"],
+    ["COHERE_API_KEY", "cohere"]
+  ];
+  for (const [envName, provider] of envProviders) {
+    const v = process.env[envName];
+    if (isUsableEmbeddingKey(v))
+      return { value: { key: v.trim(), provider }, source: "env" };
+  }
+  const cfg = readConfig();
+  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
+    return {
+      value: { key: cfg.embeddingKey.trim(), provider: cfg.embeddingProvider ?? "openai" },
+      source: "config"
+    };
+  }
+  return { value: null, source: "none" };
+}
+function resolveCredentials() {
+  const cfg = readConfig();
+  const skEnv = validPk(process.env.SESSION_KEY_PRIVATE_KEY);
+  const skCfg = validPk(cfg?.sessionKeyPrivate);
+  const sessionKeyPrivate = skEnv ?? skCfg;
+  const sessionKeySource = skEnv ? "env" : skCfg ? "config" : "none";
+  const userPrivateKey = validPk(process.env.CORTEX_USER_PRIVATE_KEY);
+  const ownerEnv = validEoa(process.env.USER_PRIMARY_ADDRESS);
+  const ownerCfg = validEoa(cfg?.ownerAddress);
+  let ownerEOA = ownerEnv ?? ownerCfg;
+  let ownerSource = ownerEnv ? "env" : ownerCfg ? "config" : "none";
+  if (!ownerEOA && userPrivateKey) {
+    const derived = deriveAddressFromPk(userPrivateKey);
+    if (derived) {
+      ownerEOA = derived;
+      ownerSource = "derived";
+    }
+  }
+  const sigEnv = validSig(process.env.CORTEX_USER_SIGNATURE);
+  const sigCfg = validSig(cfg?.userSignature);
+  const userSignature = sigEnv ?? sigCfg;
+  const signatureSource = sigEnv ? "env" : sigCfg ? "config" : "none";
+  const emb = resolveEmbedding();
+  return {
+    sessionKeyPrivate,
+    ownerEOA,
+    userSignature,
+    userPrivateKey,
+    embedding: emb.value,
+    source: {
+      sessionKey: sessionKeySource,
+      owner: ownerSource,
+      signature: signatureSource,
+      embedding: emb.source
+    }
+  };
+}
+var EOA_RE, PK_RE, SIG_RE;
+var init_credentials = __esm(() => {
+  init_accounts();
+  init_embeddings();
+  init_cortex_config();
+  EOA_RE = /^0x[0-9a-fA-F]{40}$/;
+  PK_RE = /^0x[0-9a-fA-F]{64}$/;
+  SIG_RE = /^0x[0-9a-fA-F]+$/;
+});
+
 // src/compression/embeddings.ts
+function isMissingEmbeddingKey(err) {
+  return err instanceof MissingEmbeddingKeyError || typeof err === "object" && err !== null && "isMissingEmbeddingKey" in err;
+}
 function isUsableEmbeddingKey(key) {
   if (typeof key !== "string")
     return false;
@@ -18475,10 +18734,6 @@ function isUsableEmbeddingKey(key) {
   if (/\.{2,}|\u2026|placeholder|your[-_]?key/i.test(v))
     return false;
   return true;
-}
-function envEmbeddingKey(name) {
-  const v = process.env[name];
-  return isUsableEmbeddingKey(v) ? v.trim() : undefined;
 }
 function toFloat32(arr, provider) {
   if (!Array.isArray(arr)) {
@@ -18587,39 +18842,26 @@ async function embedText(text) {
   if (typeof text !== "string" || text.length === 0) {
     throw new Error("embedText: input text must be a non-empty string");
   }
-  const openAiKey = envEmbeddingKey("OPENAI_API_KEY");
-  if (openAiKey)
-    return embedViaOpenAI(text, openAiKey);
-  const openRouterKey = envEmbeddingKey("OPENROUTER_API_KEY");
-  if (openRouterKey)
-    return embedViaOpenRouter(text, openRouterKey);
-  const voyageKey = envEmbeddingKey("VOYAGE_API_KEY");
-  if (voyageKey)
-    return embedViaVoyage(text, voyageKey);
-  const cohereKey = envEmbeddingKey("COHERE_API_KEY");
-  if (cohereKey)
-    return embedViaCohere(text, cohereKey);
-  const cfg = readConfig();
-  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
-    switch (cfg.embeddingProvider ?? "openai") {
-      case "openrouter":
-        return embedViaOpenRouter(text, cfg.embeddingKey);
-      case "voyage":
-        return embedViaVoyage(text, cfg.embeddingKey);
-      case "cohere":
-        return embedViaCohere(text, cfg.embeddingKey);
-      case "openai":
-      default:
-        return embedViaOpenAI(text, cfg.embeddingKey);
-    }
+  const emb = resolveCredentials().embedding;
+  if (!emb)
+    throw new MissingEmbeddingKeyError(EMBEDDING_SETUP_MESSAGE);
+  switch (emb.provider) {
+    case "openrouter":
+      return embedViaOpenRouter(text, emb.key);
+    case "voyage":
+      return embedViaVoyage(text, emb.key);
+    case "cohere":
+      return embedViaCohere(text, emb.key);
+    case "openai":
+    default:
+      return embedViaOpenAI(text, emb.key);
   }
-  throw new MissingEmbeddingKeyError(EMBEDDING_SETUP_MESSAGE);
 }
 var EMBED_DIM2 = 1536, EMBED_FETCH_TIMEOUT_MS = 30000, OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings", OPENAI_MODEL, OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings", OPENROUTER_MODEL, VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings", VOYAGE_MODEL, COHERE_EMBED_URL = "https://api.cohere.com/v2/embed", COHERE_MODEL = "embed-v4.0", MissingEmbeddingKeyError, EMBEDDING_SETUP_MESSAGE;
 var init_embeddings = __esm(() => {
   init_rabitq();
   init_events();
-  init_cortex_config();
+  init_credentials();
   OPENAI_MODEL = process.env["OPENAI_EMBED_MODEL"] ?? "text-embedding-3-small";
   OPENROUTER_MODEL = process.env["OPENROUTER_EMBED_MODEL"] ?? "openai/text-embedding-3-small";
   VOYAGE_MODEL = process.env["VOYAGE_EMBED_MODEL"] ?? "voyage-large-2";
@@ -21682,177 +21924,6 @@ var init_crypto = __esm(() => {
   init_constants();
 });
 
-// node_modules/viem/_esm/accounts/toAccount.js
-function toAccount(source) {
-  if (typeof source === "string") {
-    if (!isAddress(source, { strict: false }))
-      throw new InvalidAddressError({ address: source });
-    return {
-      address: source,
-      type: "json-rpc"
-    };
-  }
-  if (!isAddress(source.address, { strict: false }))
-    throw new InvalidAddressError({ address: source.address });
-  return {
-    address: source.address,
-    nonceManager: source.nonceManager,
-    sign: source.sign,
-    signAuthorization: source.signAuthorization,
-    signMessage: source.signMessage,
-    signTransaction: source.signTransaction,
-    signTypedData: source.signTypedData,
-    source: "custom",
-    type: "local"
-  };
-}
-var init_toAccount = __esm(() => {
-  init_address();
-  init_isAddress();
-});
-
-// node_modules/viem/_esm/accounts/utils/sign.js
-async function sign({ hash: hash3, privateKey, to = "object" }) {
-  const { r, s, recovery } = secp256k1.sign(hash3.slice(2), privateKey.slice(2), {
-    lowS: true,
-    extraEntropy: isHex(extraEntropy, { strict: false }) ? hexToBytes(extraEntropy) : extraEntropy
-  });
-  const signature = {
-    r: numberToHex(r, { size: 32 }),
-    s: numberToHex(s, { size: 32 }),
-    v: recovery ? 28n : 27n,
-    yParity: recovery
-  };
-  return (() => {
-    if (to === "bytes" || to === "hex")
-      return serializeSignature({ ...signature, to });
-    return signature;
-  })();
-}
-var extraEntropy = false;
-var init_sign = __esm(() => {
-  init_secp256k1();
-  init_toBytes();
-  init_toHex();
-  init_serializeSignature();
-});
-
-// node_modules/viem/_esm/accounts/utils/signAuthorization.js
-async function signAuthorization2(parameters) {
-  const { chainId, nonce, privateKey, to = "object" } = parameters;
-  const address = parameters.contractAddress ?? parameters.address;
-  const signature = await sign({
-    hash: hashAuthorization({ address, chainId, nonce }),
-    privateKey,
-    to
-  });
-  if (to === "object")
-    return {
-      address,
-      chainId,
-      nonce,
-      ...signature
-    };
-  return signature;
-}
-var init_signAuthorization2 = __esm(() => {
-  init_hashAuthorization();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/utils/signMessage.js
-async function signMessage2({ message, privateKey }) {
-  return await sign({ hash: hashMessage(message), privateKey, to: "hex" });
-}
-var init_signMessage2 = __esm(() => {
-  init_hashMessage();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/utils/signTransaction.js
-async function signTransaction2(parameters) {
-  const { privateKey, transaction, serializer = serializeTransaction } = parameters;
-  const signableTransaction = (() => {
-    if (transaction.type === "eip4844")
-      return {
-        ...transaction,
-        sidecars: false
-      };
-    return transaction;
-  })();
-  const signature = await sign({
-    hash: keccak256(await serializer(signableTransaction)),
-    privateKey
-  });
-  return await serializer(transaction, signature);
-}
-var init_signTransaction2 = __esm(() => {
-  init_keccak256();
-  init_serializeTransaction();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/utils/signTypedData.js
-async function signTypedData2(parameters) {
-  const { privateKey, ...typedData } = parameters;
-  return await sign({
-    hash: hashTypedData(typedData),
-    privateKey,
-    to: "hex"
-  });
-}
-var init_signTypedData2 = __esm(() => {
-  init_hashTypedData();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/privateKeyToAccount.js
-function privateKeyToAccount(privateKey, options = {}) {
-  const { nonceManager } = options;
-  const publicKey = toHex(secp256k1.getPublicKey(privateKey.slice(2), false));
-  const address = publicKeyToAddress(publicKey);
-  const account = toAccount({
-    address,
-    nonceManager,
-    async sign({ hash: hash3 }) {
-      return sign({ hash: hash3, privateKey, to: "hex" });
-    },
-    async signAuthorization(authorization) {
-      return signAuthorization2({ ...authorization, privateKey });
-    },
-    async signMessage({ message }) {
-      return signMessage2({ message, privateKey });
-    },
-    async signTransaction(transaction, { serializer } = {}) {
-      return signTransaction2({ privateKey, transaction, serializer });
-    },
-    async signTypedData(typedData) {
-      return signTypedData2({ ...typedData, privateKey });
-    }
-  });
-  return {
-    ...account,
-    publicKey,
-    source: "privateKey"
-  };
-}
-var init_privateKeyToAccount = __esm(() => {
-  init_secp256k1();
-  init_toHex();
-  init_toAccount();
-  init_publicKeyToAddress();
-  init_sign();
-  init_signAuthorization2();
-  init_signMessage2();
-  init_signTransaction2();
-  init_signTypedData2();
-});
-
-// node_modules/viem/_esm/accounts/index.js
-var init_accounts = __esm(() => {
-  init_privateKeyToAccount();
-});
-
 // node_modules/@arkiv-network/sdk/src/accounts/index.ts
 var init_accounts2 = __esm(() => {
   init_accounts();
@@ -21868,23 +21939,17 @@ __export(exports_owner_identity, {
   _peekCached: () => _peekCached
 });
 async function resolveFromEnv() {
-  const addr = process.env.USER_PRIMARY_ADDRESS;
-  const ownerAddress = addr && ADDR_RE.test(addr) ? addr : null;
+  const creds = resolveCredentials();
+  const ownerAddress = creds.ownerEOA ?? null;
   let signature = null;
-  const sigEnv = process.env.CORTEX_USER_SIGNATURE;
-  if (sigEnv && SIG_RE.test(sigEnv)) {
-    signature = sigEnv;
-  } else {
-    const pkEnv = process.env.CORTEX_USER_PRIVATE_KEY;
-    if (pkEnv && PK_RE.test(pkEnv)) {
-      const account = privateKeyToAccount(pkEnv);
-      const message = keyDerivationMessage(account.address);
-      signature = await account.signMessage({ message });
-    } else {
-      const cfgSig = readConfig()?.userSignature;
-      if (cfgSig && SIG_RE.test(cfgSig))
-        signature = cfgSig;
-    }
+  if (creds.source.signature === "env") {
+    signature = creds.userSignature;
+  } else if (creds.userPrivateKey) {
+    const account = privateKeyToAccount(creds.userPrivateKey);
+    const message = keyDerivationMessage(account.address);
+    signature = await account.signMessage({ message });
+  } else if (creds.source.signature === "config") {
+    signature = creds.userSignature;
   }
   const payloadKey = signature ? await derivePayloadKey(signature) : null;
   const source = ownerAddress || signature ? "env" : "none";
@@ -21900,7 +21965,7 @@ async function adopt(opts) {
   if (!ADDR_RE.test(opts.address)) {
     throw new Error("adopt: address must be 0x-prefixed 40-hex EOA");
   }
-  if (!SIG_RE.test(opts.signature)) {
+  if (!SIG_RE2.test(opts.signature)) {
     throw new Error("adopt: signature must be 0x-prefixed hex");
   }
   const message = keyDerivationMessage(opts.address);
@@ -21930,31 +21995,28 @@ function _setOwnerIdentityForTest(view) {
 function _peekCached() {
   return _cached2;
 }
-var ADDR_RE, PK_RE, SIG_RE, _cached2 = null;
+var ADDR_RE, SIG_RE2, _cached2 = null;
 var init_owner_identity = __esm(() => {
   init__esm();
   init_accounts();
   init_crypto();
-  init_cortex_config();
+  init_credentials();
   ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
-  PK_RE = /^0x[0-9a-fA-F]{64}$/;
-  SIG_RE = /^0x[0-9a-fA-F]+$/;
+  SIG_RE2 = /^0x[0-9a-fA-F]+$/;
 });
 
 // src/lib/payload-key.ts
 async function resolveSignature() {
-  const sig = process.env.CORTEX_USER_SIGNATURE;
-  if (sig && SIG_RE2.test(sig))
-    return sig;
-  const pk = process.env.CORTEX_USER_PRIVATE_KEY;
-  if (pk && PK_RE2.test(pk)) {
-    const account = privateKeyToAccount(pk);
+  const creds = resolveCredentials();
+  if (creds.source.signature === "env")
+    return creds.userSignature;
+  if (creds.userPrivateKey) {
+    const account = privateKeyToAccount(creds.userPrivateKey);
     const message = keyDerivationMessage(account.address);
     return await account.signMessage({ message });
   }
-  const cfgSig = readConfig()?.userSignature;
-  if (cfgSig && SIG_RE2.test(cfgSig))
-    return cfgSig;
+  if (creds.source.signature === "config")
+    return creds.userSignature;
   return null;
 }
 async function getPayloadKey() {
@@ -21968,13 +22030,11 @@ async function getPayloadKey() {
   _cached3 = sig ? await derivePayloadKey(sig) : null;
   return _cached3;
 }
-var _cached3, SIG_RE2, PK_RE2;
+var _cached3;
 var init_payload_key = __esm(() => {
   init_accounts2();
   init_crypto();
-  init_cortex_config();
-  SIG_RE2 = /^0x[0-9a-fA-F]+$/;
-  PK_RE2 = /^0x[0-9a-fA-F]{64}$/;
+  init_credentials();
 });
 
 // src/darwinian/utility.ts
@@ -23605,7 +23665,7 @@ function getPublicClient() {
 function getWalletClient() {
   if (_walletClient)
     return _walletClient;
-  const pk = process.env.SESSION_KEY_PRIVATE_KEY ?? readConfig()?.sessionKeyPrivate;
+  const pk = resolveCredentials().sessionKeyPrivate;
   if (!pk) {
     throw new Error("No session key. Run `cortex auth` (connect your wallet) \u2014 or set " + "SESSION_KEY_PRIVATE_KEY and fund the EOA via " + BRAGA.faucet);
   }
@@ -23650,7 +23710,7 @@ var init_arkiv_client = __esm(() => {
   init_query2();
   init_constants();
   init_events();
-  init_cortex_config();
+  init_credentials();
 });
 
 // node_modules/better-sqlite3/lib/util.js
@@ -25021,19 +25081,28 @@ async function recall(opts) {
   }
   const embed = opts._deps?.embedQuery ?? embedText;
   const fetchCandidates = opts._deps?.fetchCandidates ?? defaultFetchCandidates;
-  const queryEmbedding = await embed(opts.query);
+  let queryEmbedding = null;
   try {
-    const t0 = performance.now();
-    const packed = packCode(rabitqEncode(queryEmbedding));
-    publish({
-      type: "rabitq.encoded",
-      ts: Date.now(),
-      dim: queryEmbedding.length,
-      bytes: packed.byteLength,
-      ratio: queryEmbedding.length * 4 / packed.byteLength,
-      ms: performance.now() - t0
-    });
-  } catch {}
+    queryEmbedding = await embed(opts.query);
+  } catch (err) {
+    if (!isMissingEmbeddingKey(err))
+      throw err;
+    queryEmbedding = null;
+  }
+  if (queryEmbedding) {
+    try {
+      const t0 = performance.now();
+      const packed = packCode(rabitqEncode(queryEmbedding));
+      publish({
+        type: "rabitq.encoded",
+        ts: Date.now(),
+        dim: queryEmbedding.length,
+        bytes: packed.byteLength,
+        ratio: queryEmbedding.length * 4 / packed.byteLength,
+        ms: performance.now() - t0
+      });
+    } catch {}
+  }
   const candidates = await fetchCandidates(opts.entityType, opts.project);
   const payloadKey = await getPayloadKey();
   const hits = [];
@@ -25064,25 +25133,31 @@ async function recall(opts) {
       if (raw) {
         try {
           const doc = decodeDocumentPayload(raw);
-          let stage1 = 0;
-          try {
-            stage1 = rabitqInnerProduct(queryEmbedding, unpackCode(doc.code));
-          } catch {}
-          let bestOffset = 0;
-          for (const s of doc.sections) {
+          if (!queryEmbedding) {
+            score = textOverlapScore(opts.query, doc.text);
+            docText = doc.text;
+            preview = doc.text.slice(0, PREVIEW_LIMIT);
+          } else {
+            let stage1 = 0;
             try {
-              const ss = rabitqInnerProduct(queryEmbedding, unpackCode(s.code));
-              if (ss > stage1) {
-                stage1 = ss;
-                bestOffset = s.offset;
-              }
+              stage1 = rabitqInnerProduct(queryEmbedding, unpackCode(doc.code));
             } catch {}
+            let bestOffset = 0;
+            for (const s of doc.sections) {
+              try {
+                const ss = rabitqInnerProduct(queryEmbedding, unpackCode(s.code));
+                if (ss > stage1) {
+                  stage1 = ss;
+                  bestOffset = s.offset;
+                }
+              } catch {}
+            }
+            score = cosineF32(queryEmbedding, doc.rerankEmbedding);
+            if (!Number.isFinite(score) || score === 0)
+              score = stage1;
+            docText = doc.text;
+            preview = doc.text.slice(bestOffset, bestOffset + PREVIEW_LIMIT);
           }
-          score = cosineF32(queryEmbedding, doc.rerankEmbedding);
-          if (!Number.isFinite(score) || score === 0)
-            score = stage1;
-          docText = doc.text;
-          preview = doc.text.slice(bestOffset, bestOffset + PREVIEW_LIMIT);
         } catch {
           score = 0;
         }
@@ -25103,7 +25178,7 @@ async function recall(opts) {
         }
       }
     } else {
-      if (raw && raw.length === RABITQ_PACK_SIZE) {
+      if (queryEmbedding && raw && raw.length === RABITQ_PACK_SIZE) {
         try {
           const code = unpackCode(raw);
           score = rabitqInnerProduct(queryEmbedding, code);
