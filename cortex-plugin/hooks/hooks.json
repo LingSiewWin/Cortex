@@ -1,35 +1,37 @@
 {
-  "SessionStart": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "bun \"${CLAUDE_PLUGIN_ROOT}/dist/cortex-hook-recall.js\"",
-          "timeout": 12
-        }
-      ]
-    }
-  ],
-  "PreCompact": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "bun \"${CLAUDE_PLUGIN_ROOT}/dist/cortex-hook-capture.js\"",
-          "timeout": 12
-        }
-      ]
-    }
-  ],
-  "SessionEnd": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "bun \"${CLAUDE_PLUGIN_ROOT}/dist/cortex-hook-capture.js\"",
-          "timeout": 12
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/dist/cortex-hook-recall.js\"",
+            "timeout": 12
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/dist/cortex-hook-capture.js\"",
+            "timeout": 12
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/dist/cortex-hook-capture.js\"",
+            "timeout": 12
+          }
+        ]
+      }
+    ]
+  }
 }
