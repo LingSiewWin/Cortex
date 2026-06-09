@@ -24730,6 +24730,444 @@ var init__esm = __esm(() => {
   init_verifyMessage();
 });
 
+// src/compression/fht.ts
+function log2PowerOfTwo(n) {
+  if (n <= 0)
+    return -1;
+  let k = 0;
+  let v = n;
+  while ((v & 1) === 0) {
+    v >>= 1;
+    k++;
+  }
+  return v === 1 ? k : -1;
+}
+function fastHadamardTransform(x) {
+  const D = x.length;
+  const logD = log2PowerOfTwo(D);
+  if (logD < 0) {
+    throw new Error(`fastHadamardTransform: length must be a power of two, got ${D}`);
+  }
+  let h = 1;
+  while (h < D) {
+    const twoH = h << 1;
+    for (let i = 0;i < D; i += twoH) {
+      for (let j = i;j < i + h; j++) {
+        const a = x[j];
+        const b = x[j + h];
+        x[j] = a + b;
+        x[j + h] = a - b;
+      }
+    }
+    h = twoH;
+  }
+  const invSqrtD = 1 / Math.sqrt(D);
+  for (let i = 0;i < D; i++) {
+    x[i] = x[i] * invSqrtD;
+  }
+}
+function makeXorshift128(seedHex) {
+  const FNV_OFFSET = 2166136261;
+  const FNV_PRIME = 16777619;
+  const seeds = new Uint32Array(4);
+  for (let k = 0;k < 4; k++) {
+    let h = (FNV_OFFSET ^ k * 2654435769) >>> 0;
+    for (let i = 0;i < seedHex.length; i++) {
+      h ^= seedHex.charCodeAt(i);
+      h = Math.imul(h, FNV_PRIME) >>> 0;
+    }
+    seeds[k] = h === 0 ? 2654435769 : h;
+  }
+  let s0 = seeds[0];
+  let s1 = seeds[1];
+  let s2 = seeds[2];
+  let s3 = seeds[3];
+  return function next() {
+    let t = s0 ^ s0 << 11;
+    t ^= t >>> 8;
+    s0 = s1;
+    s1 = s2;
+    s2 = s3;
+    s3 = s3 ^ s3 >>> 19 ^ (t ^ t >>> 8);
+    return s3 >>> 0;
+  };
+}
+function rotateWithSeed(x, seedHex) {
+  const D = x.length;
+  const rng = makeXorshift128(seedHex);
+  for (let i = 0;i < D; i += 32) {
+    const word = rng();
+    const lim = Math.min(32, D - i);
+    for (let b = 0;b < lim; b++) {
+      const bit = word >>> b & 1;
+      if (bit === 0)
+        x[i + b] = -x[i + b];
+    }
+  }
+  fastHadamardTransform(x);
+}
+
+// src/compression/rabitq.ts
+function f32ToF16(value) {
+  f32[0] = value;
+  const x = u322[0];
+  const sign = x >>> 16 & 32768;
+  let mant = x & 8388607;
+  let exp = x >>> 23 & 255;
+  if (exp === 255) {
+    return sign | 31744 | (mant !== 0 ? 512 | mant >>> 13 : 0);
+  }
+  let newExp = exp - 127 + 15;
+  if (newExp >= 31) {
+    return sign | 31744;
+  }
+  if (newExp <= 0) {
+    if (newExp < -10)
+      return sign;
+    mant = (mant | 8388608) >>> 1 - newExp;
+    if ((mant & 4096) !== 0)
+      mant += 8192;
+    return sign | mant >>> 13;
+  }
+  if ((mant & 4096) !== 0) {
+    mant += 8192;
+    if ((mant & 8388608) !== 0) {
+      mant = 0;
+      newExp++;
+      if (newExp >= 31)
+        return sign | 31744;
+    }
+  }
+  return sign | newExp << 10 | mant >>> 13;
+}
+function f16ToF32(value) {
+  const sign = (value & 32768) << 16;
+  const exp = value >>> 10 & 31;
+  const mant = value & 1023;
+  let outBits;
+  if (exp === 0) {
+    if (mant === 0) {
+      outBits = sign;
+    } else {
+      let m = mant;
+      let e = 1;
+      while ((m & 1024) === 0) {
+        m <<= 1;
+        e--;
+      }
+      m &= 1023;
+      outBits = sign | e + 127 - 15 << 23 | m << 13;
+    }
+  } else if (exp === 31) {
+    outBits = sign | 2139095040 | mant << 13;
+  } else {
+    outBits = sign | exp + 127 - 15 << 23 | mant << 13;
+  }
+  u322[0] = outBits >>> 0;
+  return f32[0];
+}
+function padToRotationDim(vec) {
+  const out = new Float32Array(PADDED_DIM);
+  const n = Math.min(vec.length, EMBED_DIM);
+  for (let i = 0;i < n; i++)
+    out[i] = vec[i];
+  return out;
+}
+function l2Norm(vec) {
+  let s = 0;
+  for (let i = 0;i < vec.length; i++) {
+    const v = vec[i];
+    s += v * v;
+  }
+  return Math.sqrt(s);
+}
+function rotateUnit(vec) {
+  const padded = padToRotationDim(vec);
+  const norm = l2Norm(padded);
+  if (norm > 0) {
+    const inv = 1 / norm;
+    for (let i = 0;i < PADDED_DIM; i++)
+      padded[i] = padded[i] * inv;
+  }
+  rotateWithSeed(padded, ROTATION_SEED);
+  return { rotated: padded, norm };
+}
+function packSigns(rotated) {
+  const out = new Uint8Array(SIGN_BYTES);
+  for (let i = 0;i < EMBED_DIM; i++) {
+    if (rotated[i] >= 0) {
+      const byteIdx = i >>> 3;
+      const bitInByte = 7 - (i & 7);
+      out[byteIdx] = out[byteIdx] | 1 << bitInByte;
+    }
+  }
+  return out;
+}
+function signAt(signs, i) {
+  const byteIdx = i >>> 3;
+  const bitInByte = 7 - (i & 7);
+  return signs[byteIdx] >>> bitInByte & 1 ? 1 : -1;
+}
+function rabitqEncode(vec) {
+  const { rotated, norm } = rotateUnit(vec);
+  const signs = packSigns(rotated);
+  const invSqrtD = 1 / Math.sqrt(EMBED_DIM);
+  let align = 0;
+  for (let i = 0;i < EMBED_DIM; i++) {
+    const r = rotated[i];
+    align += r >= 0 ? r : -r;
+  }
+  align *= invSqrtD;
+  return {
+    signs,
+    normFp16: f32ToF16(norm),
+    alignFp16: f32ToF16(align)
+  };
+}
+function packCode(code) {
+  if (code.signs.length !== SIGN_BYTES) {
+    throw new Error(`packCode: signs must be ${SIGN_BYTES} bytes, got ${code.signs.length}`);
+  }
+  const out = new Uint8Array(PACK_SIZE);
+  out.set(code.signs, 0);
+  out[NORM_OFFSET] = code.normFp16 & 255;
+  out[NORM_OFFSET + 1] = code.normFp16 >>> 8 & 255;
+  out[ALIGN_OFFSET] = code.alignFp16 & 255;
+  out[ALIGN_OFFSET + 1] = code.alignFp16 >>> 8 & 255;
+  out[CENTROID_OFFSET] = 0;
+  out[CENTROID_OFFSET + 1] = 0;
+  return out;
+}
+function unpackCode(bytes) {
+  if (bytes.length !== PACK_SIZE) {
+    throw new Error(`unpackCode: expected ${PACK_SIZE} bytes, got ${bytes.length}`);
+  }
+  const signs = new Uint8Array(SIGN_BYTES);
+  signs.set(bytes.subarray(0, SIGN_BYTES));
+  const normFp16 = bytes[NORM_OFFSET] | bytes[NORM_OFFSET + 1] << 8;
+  const alignFp16 = bytes[ALIGN_OFFSET] | bytes[ALIGN_OFFSET + 1] << 8;
+  return { signs, normFp16, alignFp16 };
+}
+function rabitqInnerProduct(query, code) {
+  const { rotated: qRot, norm: qNorm } = rotateUnit(query);
+  const align = f16ToF32(code.alignFp16);
+  const vecNorm = f16ToF32(code.normFp16);
+  if (align === 0 || qNorm === 0 || vecNorm === 0)
+    return 0;
+  const invSqrtD = 1 / Math.sqrt(EMBED_DIM);
+  let dot = 0;
+  for (let i = 0;i < EMBED_DIM; i++) {
+    dot += signAt(code.signs, i) * qRot[i];
+  }
+  dot *= invSqrtD;
+  const unitIp = dot / align;
+  return unitIp * vecNorm * qNorm;
+}
+var EMBED_DIM = 1536, PADDED_DIM = 2048, SIGN_BYTES, ROTATION_SEED = "cortex.rabitq.rotation.v1", NORM_OFFSET, ALIGN_OFFSET, CENTROID_OFFSET, PACK_SIZE, f32, u322;
+var init_rabitq = __esm(() => {
+  SIGN_BYTES = EMBED_DIM >> 3;
+  NORM_OFFSET = SIGN_BYTES;
+  ALIGN_OFFSET = SIGN_BYTES + 2;
+  CENTROID_OFFSET = SIGN_BYTES + 4;
+  PACK_SIZE = SIGN_BYTES + 2 + 2 + 2;
+  f32 = new Float32Array(1);
+  u322 = new Uint32Array(f32.buffer);
+});
+
+// src/lib/events.ts
+function publish(event) {
+  seq += 1;
+  const envelope = {
+    id: String(seq),
+    type: event.type,
+    event
+  };
+  const ring = buffers.get(event.type) ?? [];
+  ring.push(envelope);
+  if (ring.length > RING_CAP_PER_TYPE)
+    ring.shift();
+  buffers.set(event.type, ring);
+  dispatcher.dispatchEvent(new CustomEvent("evt", { detail: envelope }));
+  return envelope;
+}
+var RING_CAP_PER_TYPE = 200, buffers, dispatcher, wrappedListeners, seq = 0;
+var init_events = __esm(() => {
+  buffers = new Map;
+  dispatcher = new EventTarget;
+  wrappedListeners = new Set;
+});
+
+// node_modules/viem/_esm/accounts/toAccount.js
+function toAccount(source) {
+  if (typeof source === "string") {
+    if (!isAddress(source, { strict: false }))
+      throw new InvalidAddressError({ address: source });
+    return {
+      address: source,
+      type: "json-rpc"
+    };
+  }
+  if (!isAddress(source.address, { strict: false }))
+    throw new InvalidAddressError({ address: source.address });
+  return {
+    address: source.address,
+    nonceManager: source.nonceManager,
+    sign: source.sign,
+    signAuthorization: source.signAuthorization,
+    signMessage: source.signMessage,
+    signTransaction: source.signTransaction,
+    signTypedData: source.signTypedData,
+    source: "custom",
+    type: "local"
+  };
+}
+var init_toAccount = __esm(() => {
+  init_address();
+  init_isAddress();
+});
+
+// node_modules/viem/_esm/accounts/utils/sign.js
+async function sign({ hash: hash4, privateKey, to = "object" }) {
+  const { r, s, recovery } = secp256k1.sign(hash4.slice(2), privateKey.slice(2), {
+    lowS: true,
+    extraEntropy: isHex(extraEntropy, { strict: false }) ? hexToBytes(extraEntropy) : extraEntropy
+  });
+  const signature = {
+    r: numberToHex(r, { size: 32 }),
+    s: numberToHex(s, { size: 32 }),
+    v: recovery ? 28n : 27n,
+    yParity: recovery
+  };
+  return (() => {
+    if (to === "bytes" || to === "hex")
+      return serializeSignature({ ...signature, to });
+    return signature;
+  })();
+}
+var extraEntropy = false;
+var init_sign = __esm(() => {
+  init_secp256k1();
+  init_toBytes();
+  init_toHex();
+  init_serializeSignature();
+});
+
+// node_modules/viem/_esm/accounts/utils/signAuthorization.js
+async function signAuthorization2(parameters) {
+  const { chainId, nonce, privateKey, to = "object" } = parameters;
+  const address = parameters.contractAddress ?? parameters.address;
+  const signature = await sign({
+    hash: hashAuthorization({ address, chainId, nonce }),
+    privateKey,
+    to
+  });
+  if (to === "object")
+    return {
+      address,
+      chainId,
+      nonce,
+      ...signature
+    };
+  return signature;
+}
+var init_signAuthorization2 = __esm(() => {
+  init_hashAuthorization();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/utils/signMessage.js
+async function signMessage2({ message, privateKey }) {
+  return await sign({ hash: hashMessage(message), privateKey, to: "hex" });
+}
+var init_signMessage2 = __esm(() => {
+  init_hashMessage();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/utils/signTransaction.js
+async function signTransaction2(parameters) {
+  const { privateKey, transaction, serializer = serializeTransaction } = parameters;
+  const signableTransaction = (() => {
+    if (transaction.type === "eip4844")
+      return {
+        ...transaction,
+        sidecars: false
+      };
+    return transaction;
+  })();
+  const signature = await sign({
+    hash: keccak256(await serializer(signableTransaction)),
+    privateKey
+  });
+  return await serializer(transaction, signature);
+}
+var init_signTransaction2 = __esm(() => {
+  init_keccak256();
+  init_serializeTransaction();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/utils/signTypedData.js
+async function signTypedData2(parameters) {
+  const { privateKey, ...typedData } = parameters;
+  return await sign({
+    hash: hashTypedData(typedData),
+    privateKey,
+    to: "hex"
+  });
+}
+var init_signTypedData2 = __esm(() => {
+  init_hashTypedData();
+  init_sign();
+});
+
+// node_modules/viem/_esm/accounts/privateKeyToAccount.js
+function privateKeyToAccount(privateKey, options = {}) {
+  const { nonceManager } = options;
+  const publicKey = toHex(secp256k1.getPublicKey(privateKey.slice(2), false));
+  const address = publicKeyToAddress(publicKey);
+  const account = toAccount({
+    address,
+    nonceManager,
+    async sign({ hash: hash4 }) {
+      return sign({ hash: hash4, privateKey, to: "hex" });
+    },
+    async signAuthorization(authorization) {
+      return signAuthorization2({ ...authorization, privateKey });
+    },
+    async signMessage({ message }) {
+      return signMessage2({ message, privateKey });
+    },
+    async signTransaction(transaction, { serializer } = {}) {
+      return signTransaction2({ privateKey, transaction, serializer });
+    },
+    async signTypedData(typedData) {
+      return signTypedData2({ ...typedData, privateKey });
+    }
+  });
+  return {
+    ...account,
+    publicKey,
+    source: "privateKey"
+  };
+}
+var init_privateKeyToAccount = __esm(() => {
+  init_secp256k1();
+  init_toHex();
+  init_toAccount();
+  init_publicKeyToAddress();
+  init_sign();
+  init_signAuthorization2();
+  init_signMessage2();
+  init_signTransaction2();
+  init_signTypedData2();
+});
+
+// node_modules/viem/_esm/accounts/index.js
+var init_accounts = __esm(() => {
+  init_privateKeyToAccount();
+});
+
 // src/lib/cortex-config.ts
 import { homedir } from "os";
 import { join, dirname } from "path";
@@ -24755,6 +25193,259 @@ function readConfig() {
 }
 var _cached;
 var init_cortex_config = () => {};
+
+// src/lib/credentials.ts
+function validPk(v) {
+  return typeof v === "string" && PK_RE.test(v) ? v : null;
+}
+function validEoa(v) {
+  return typeof v === "string" && EOA_RE.test(v) ? v : null;
+}
+function validSig(v) {
+  return typeof v === "string" && SIG_RE.test(v) ? v : null;
+}
+function deriveAddressFromPk(pk) {
+  try {
+    return privateKeyToAccount(pk).address;
+  } catch {
+    return null;
+  }
+}
+function resolveEmbedding() {
+  const envProviders = [
+    ["OPENAI_API_KEY", "openai"],
+    ["OPENROUTER_API_KEY", "openrouter"],
+    ["VOYAGE_API_KEY", "voyage"],
+    ["COHERE_API_KEY", "cohere"]
+  ];
+  for (const [envName, provider] of envProviders) {
+    const v = process.env[envName];
+    if (isUsableEmbeddingKey(v))
+      return { value: { key: v.trim(), provider }, source: "env" };
+  }
+  const cfg = readConfig();
+  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
+    return {
+      value: { key: cfg.embeddingKey.trim(), provider: cfg.embeddingProvider ?? "openai" },
+      source: "config"
+    };
+  }
+  return { value: null, source: "none" };
+}
+function resolveCredentials() {
+  const cfg = readConfig();
+  const skEnv = validPk(process.env.SESSION_KEY_PRIVATE_KEY);
+  const skCfg = validPk(cfg?.sessionKeyPrivate);
+  const sessionKeyPrivate = skEnv ?? skCfg;
+  const sessionKeySource = skEnv ? "env" : skCfg ? "config" : "none";
+  const userPrivateKey = validPk(process.env.CORTEX_USER_PRIVATE_KEY);
+  const ownerEnv = validEoa(process.env.USER_PRIMARY_ADDRESS);
+  const ownerCfg = validEoa(cfg?.ownerAddress);
+  let ownerEOA = ownerEnv ?? ownerCfg;
+  let ownerSource = ownerEnv ? "env" : ownerCfg ? "config" : "none";
+  if (!ownerEOA && userPrivateKey) {
+    const derived = deriveAddressFromPk(userPrivateKey);
+    if (derived) {
+      ownerEOA = derived;
+      ownerSource = "derived";
+    }
+  }
+  const sigEnv = validSig(process.env.CORTEX_USER_SIGNATURE);
+  const sigCfg = validSig(cfg?.userSignature);
+  const userSignature = sigEnv ?? sigCfg;
+  const signatureSource = sigEnv ? "env" : sigCfg ? "config" : "none";
+  const emb = resolveEmbedding();
+  return {
+    sessionKeyPrivate,
+    ownerEOA,
+    userSignature,
+    userPrivateKey,
+    embedding: emb.value,
+    source: {
+      sessionKey: sessionKeySource,
+      owner: ownerSource,
+      signature: signatureSource,
+      embedding: emb.source
+    }
+  };
+}
+var EOA_RE, PK_RE, SIG_RE;
+var init_credentials = __esm(() => {
+  init_accounts();
+  init_embeddings();
+  init_cortex_config();
+  EOA_RE = /^0x[0-9a-fA-F]{40}$/;
+  PK_RE = /^0x[0-9a-fA-F]{64}$/;
+  SIG_RE = /^0x[0-9a-fA-F]+$/;
+});
+
+// src/compression/embeddings.ts
+function isMissingEmbeddingKey(err) {
+  return err instanceof MissingEmbeddingKeyError || typeof err === "object" && err !== null && "isMissingEmbeddingKey" in err;
+}
+function isUsableEmbeddingKey(key) {
+  if (typeof key !== "string")
+    return false;
+  const v = key.trim();
+  if (v.length < 16)
+    return false;
+  if (/\.{2,}|\u2026|placeholder|your[-_]?key/i.test(v))
+    return false;
+  return true;
+}
+function toFloat32(arr, provider) {
+  if (!Array.isArray(arr)) {
+    throw new Error(`embedText: unexpected ${provider} response shape`);
+  }
+  if (arr.length !== EMBED_DIM2) {
+    throw new Error(`embedText: expected ${EMBED_DIM2}-d from ${provider}, got ${arr.length}. ` + `RaBitQ requires exactly ${EMBED_DIM2}-d \u2014 set OPENROUTER_EMBED_MODEL to a 1536-d model.`);
+  }
+  const out = new Float32Array(EMBED_DIM2);
+  for (let i = 0;i < EMBED_DIM2; i++)
+    out[i] = arr[i];
+  return out;
+}
+async function embedViaOpenAI(text, apiKey) {
+  const res = await fetch(OPENAI_EMBED_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: [text],
+      dimensions: EMBED_DIM2,
+      encoding_format: "float"
+    })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`embedText: OpenAI request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
+  }
+  const json2 = await res.json();
+  const first = json2.data?.[0]?.embedding;
+  return toFloat32(first, `OpenAI(${OPENAI_MODEL})`);
+}
+async function embedViaOpenRouter(text, apiKey) {
+  const res = await fetch(OPENROUTER_EMBED_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      input: [text],
+      encoding_format: "float"
+    })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`embedText: OpenRouter request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
+  }
+  const json2 = await res.json();
+  const first = json2.data?.[0]?.embedding;
+  return toFloat32(first, `OpenRouter(${OPENROUTER_MODEL})`);
+}
+async function embedViaVoyage(text, apiKey) {
+  const res = await fetch(VOYAGE_EMBED_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: VOYAGE_MODEL,
+      input: [text],
+      input_type: "document"
+    })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`embedText: Voyage request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
+  }
+  const json2 = await res.json();
+  const first = json2.data?.[0]?.embedding;
+  return toFloat32(first, `Voyage(${VOYAGE_MODEL})`);
+}
+async function embedViaCohere(text, apiKey) {
+  const res = await fetch(COHERE_EMBED_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model: COHERE_MODEL,
+      texts: [text],
+      input_type: "search_document",
+      embedding_types: ["float"],
+      output_dimension: EMBED_DIM2
+    })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`embedText: Cohere request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
+  }
+  const json2 = await res.json();
+  const first = json2.embeddings?.float?.[0];
+  return toFloat32(first, "Cohere");
+}
+async function embedText(text) {
+  if (typeof text !== "string" || text.length === 0) {
+    throw new Error("embedText: input text must be a non-empty string");
+  }
+  const emb = resolveCredentials().embedding;
+  if (!emb)
+    throw new MissingEmbeddingKeyError(EMBEDDING_SETUP_MESSAGE);
+  switch (emb.provider) {
+    case "openrouter":
+      return embedViaOpenRouter(text, emb.key);
+    case "voyage":
+      return embedViaVoyage(text, emb.key);
+    case "cohere":
+      return embedViaCohere(text, emb.key);
+    case "openai":
+    default:
+      return embedViaOpenAI(text, emb.key);
+  }
+}
+var EMBED_DIM2 = 1536, EMBED_FETCH_TIMEOUT_MS = 30000, OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings", OPENAI_MODEL, OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings", OPENROUTER_MODEL, VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings", VOYAGE_MODEL, COHERE_EMBED_URL = "https://api.cohere.com/v2/embed", COHERE_MODEL = "embed-v4.0", MissingEmbeddingKeyError, EMBEDDING_SETUP_MESSAGE;
+var init_embeddings = __esm(() => {
+  init_rabitq();
+  init_events();
+  init_credentials();
+  OPENAI_MODEL = process.env["OPENAI_EMBED_MODEL"] ?? "text-embedding-3-small";
+  OPENROUTER_MODEL = process.env["OPENROUTER_EMBED_MODEL"] ?? "openai/text-embedding-3-small";
+  VOYAGE_MODEL = process.env["VOYAGE_EMBED_MODEL"] ?? "voyage-large-2";
+  MissingEmbeddingKeyError = class MissingEmbeddingKeyError extends Error {
+    isMissingEmbeddingKey = true;
+    constructor(message) {
+      super(message);
+      this.name = "MissingEmbeddingKeyError";
+    }
+  };
+  EMBEDDING_SETUP_MESSAGE = [
+    "Cortex needs an embedding API key to turn your notes into searchable memory.",
+    "",
+    "Add ONE of these to your environment (your shell profile, or a .env in your project):",
+    "  \u2022 OPENAI_API_KEY=sk-\u2026        \u2190 get one at https://platform.openai.com/api-keys",
+    "  \u2022 OPENROUTER_API_KEY=sk-or-\u2026 \u2190 or https://openrouter.ai/keys",
+    "  \u2022 VOYAGE_API_KEY=\u2026           \u2190 Claude/Anthropic users: Anthropic has no embeddings",
+    "                                 API, so use Voyage (their recommended partner):",
+    "                                 https://dashboard.voyageai.com/",
+    "  \u2022 COHERE_API_KEY=\u2026           \u2190 or https://dashboard.cohere.com/api-keys",
+    "",
+    "Then restart your session. (Your text is only sent to that provider to embed;",
+    "the memory itself is encrypted with your wallet and stored on Arkiv.)"
+  ].join(`
+`);
+});
 
 // node_modules/detect-libc/lib/process.js
 var require_process = __commonJS((exports, module) => {
@@ -25442,177 +26133,6 @@ var init_crypto = __esm(() => {
   init_constants();
 });
 
-// node_modules/viem/_esm/accounts/toAccount.js
-function toAccount(source) {
-  if (typeof source === "string") {
-    if (!isAddress(source, { strict: false }))
-      throw new InvalidAddressError({ address: source });
-    return {
-      address: source,
-      type: "json-rpc"
-    };
-  }
-  if (!isAddress(source.address, { strict: false }))
-    throw new InvalidAddressError({ address: source.address });
-  return {
-    address: source.address,
-    nonceManager: source.nonceManager,
-    sign: source.sign,
-    signAuthorization: source.signAuthorization,
-    signMessage: source.signMessage,
-    signTransaction: source.signTransaction,
-    signTypedData: source.signTypedData,
-    source: "custom",
-    type: "local"
-  };
-}
-var init_toAccount = __esm(() => {
-  init_address();
-  init_isAddress();
-});
-
-// node_modules/viem/_esm/accounts/utils/sign.js
-async function sign({ hash: hash4, privateKey, to = "object" }) {
-  const { r, s, recovery } = secp256k1.sign(hash4.slice(2), privateKey.slice(2), {
-    lowS: true,
-    extraEntropy: isHex(extraEntropy, { strict: false }) ? hexToBytes(extraEntropy) : extraEntropy
-  });
-  const signature = {
-    r: numberToHex(r, { size: 32 }),
-    s: numberToHex(s, { size: 32 }),
-    v: recovery ? 28n : 27n,
-    yParity: recovery
-  };
-  return (() => {
-    if (to === "bytes" || to === "hex")
-      return serializeSignature({ ...signature, to });
-    return signature;
-  })();
-}
-var extraEntropy = false;
-var init_sign = __esm(() => {
-  init_secp256k1();
-  init_toBytes();
-  init_toHex();
-  init_serializeSignature();
-});
-
-// node_modules/viem/_esm/accounts/utils/signAuthorization.js
-async function signAuthorization2(parameters) {
-  const { chainId, nonce, privateKey, to = "object" } = parameters;
-  const address = parameters.contractAddress ?? parameters.address;
-  const signature = await sign({
-    hash: hashAuthorization({ address, chainId, nonce }),
-    privateKey,
-    to
-  });
-  if (to === "object")
-    return {
-      address,
-      chainId,
-      nonce,
-      ...signature
-    };
-  return signature;
-}
-var init_signAuthorization2 = __esm(() => {
-  init_hashAuthorization();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/utils/signMessage.js
-async function signMessage2({ message, privateKey }) {
-  return await sign({ hash: hashMessage(message), privateKey, to: "hex" });
-}
-var init_signMessage2 = __esm(() => {
-  init_hashMessage();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/utils/signTransaction.js
-async function signTransaction2(parameters) {
-  const { privateKey, transaction, serializer = serializeTransaction } = parameters;
-  const signableTransaction = (() => {
-    if (transaction.type === "eip4844")
-      return {
-        ...transaction,
-        sidecars: false
-      };
-    return transaction;
-  })();
-  const signature = await sign({
-    hash: keccak256(await serializer(signableTransaction)),
-    privateKey
-  });
-  return await serializer(transaction, signature);
-}
-var init_signTransaction2 = __esm(() => {
-  init_keccak256();
-  init_serializeTransaction();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/utils/signTypedData.js
-async function signTypedData2(parameters) {
-  const { privateKey, ...typedData } = parameters;
-  return await sign({
-    hash: hashTypedData(typedData),
-    privateKey,
-    to: "hex"
-  });
-}
-var init_signTypedData2 = __esm(() => {
-  init_hashTypedData();
-  init_sign();
-});
-
-// node_modules/viem/_esm/accounts/privateKeyToAccount.js
-function privateKeyToAccount(privateKey, options = {}) {
-  const { nonceManager } = options;
-  const publicKey = toHex(secp256k1.getPublicKey(privateKey.slice(2), false));
-  const address = publicKeyToAddress(publicKey);
-  const account = toAccount({
-    address,
-    nonceManager,
-    async sign({ hash: hash4 }) {
-      return sign({ hash: hash4, privateKey, to: "hex" });
-    },
-    async signAuthorization(authorization) {
-      return signAuthorization2({ ...authorization, privateKey });
-    },
-    async signMessage({ message }) {
-      return signMessage2({ message, privateKey });
-    },
-    async signTransaction(transaction, { serializer } = {}) {
-      return signTransaction2({ privateKey, transaction, serializer });
-    },
-    async signTypedData(typedData) {
-      return signTypedData2({ ...typedData, privateKey });
-    }
-  });
-  return {
-    ...account,
-    publicKey,
-    source: "privateKey"
-  };
-}
-var init_privateKeyToAccount = __esm(() => {
-  init_secp256k1();
-  init_toHex();
-  init_toAccount();
-  init_publicKeyToAddress();
-  init_sign();
-  init_signAuthorization2();
-  init_signMessage2();
-  init_signTransaction2();
-  init_signTypedData2();
-});
-
-// node_modules/viem/_esm/accounts/index.js
-var init_accounts = __esm(() => {
-  init_privateKeyToAccount();
-});
-
 // src/agent/owner-identity.ts
 var exports_owner_identity = {};
 __export(exports_owner_identity, {
@@ -25623,23 +26143,17 @@ __export(exports_owner_identity, {
   _peekCached: () => _peekCached
 });
 async function resolveFromEnv() {
-  const addr = process.env.USER_PRIMARY_ADDRESS;
-  const ownerAddress = addr && ADDR_RE.test(addr) ? addr : null;
+  const creds = resolveCredentials();
+  const ownerAddress = creds.ownerEOA ?? null;
   let signature = null;
-  const sigEnv = process.env.CORTEX_USER_SIGNATURE;
-  if (sigEnv && SIG_RE.test(sigEnv)) {
-    signature = sigEnv;
-  } else {
-    const pkEnv = process.env.CORTEX_USER_PRIVATE_KEY;
-    if (pkEnv && PK_RE.test(pkEnv)) {
-      const account = privateKeyToAccount(pkEnv);
-      const message = keyDerivationMessage(account.address);
-      signature = await account.signMessage({ message });
-    } else {
-      const cfgSig = readConfig()?.userSignature;
-      if (cfgSig && SIG_RE.test(cfgSig))
-        signature = cfgSig;
-    }
+  if (creds.source.signature === "env") {
+    signature = creds.userSignature;
+  } else if (creds.userPrivateKey) {
+    const account = privateKeyToAccount(creds.userPrivateKey);
+    const message = keyDerivationMessage(account.address);
+    signature = await account.signMessage({ message });
+  } else if (creds.source.signature === "config") {
+    signature = creds.userSignature;
   }
   const payloadKey = signature ? await derivePayloadKey(signature) : null;
   const source = ownerAddress || signature ? "env" : "none";
@@ -25655,7 +26169,7 @@ async function adopt(opts) {
   if (!ADDR_RE.test(opts.address)) {
     throw new Error("adopt: address must be 0x-prefixed 40-hex EOA");
   }
-  if (!SIG_RE.test(opts.signature)) {
+  if (!SIG_RE2.test(opts.signature)) {
     throw new Error("adopt: signature must be 0x-prefixed hex");
   }
   const message = keyDerivationMessage(opts.address);
@@ -25685,15 +26199,14 @@ function _setOwnerIdentityForTest(view) {
 function _peekCached() {
   return _cached2;
 }
-var ADDR_RE, PK_RE, SIG_RE, _cached2 = null;
+var ADDR_RE, SIG_RE2, _cached2 = null;
 var init_owner_identity = __esm(() => {
   init__esm();
   init_accounts();
   init_crypto();
-  init_cortex_config();
+  init_credentials();
   ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
-  PK_RE = /^0x[0-9a-fA-F]{64}$/;
-  SIG_RE = /^0x[0-9a-fA-F]+$/;
+  SIG_RE2 = /^0x[0-9a-fA-F]+$/;
 });
 
 // node_modules/brotli-wasm/pkg.web/brotli_wasm.js
@@ -49497,460 +50010,8 @@ function jsonToPayload(json2) {
 
 // src/darwinian/recall.ts
 init__esm();
-
-// src/compression/fht.ts
-function log2PowerOfTwo(n) {
-  if (n <= 0)
-    return -1;
-  let k = 0;
-  let v = n;
-  while ((v & 1) === 0) {
-    v >>= 1;
-    k++;
-  }
-  return v === 1 ? k : -1;
-}
-function fastHadamardTransform(x) {
-  const D = x.length;
-  const logD = log2PowerOfTwo(D);
-  if (logD < 0) {
-    throw new Error(`fastHadamardTransform: length must be a power of two, got ${D}`);
-  }
-  let h = 1;
-  while (h < D) {
-    const twoH = h << 1;
-    for (let i = 0;i < D; i += twoH) {
-      for (let j = i;j < i + h; j++) {
-        const a = x[j];
-        const b = x[j + h];
-        x[j] = a + b;
-        x[j + h] = a - b;
-      }
-    }
-    h = twoH;
-  }
-  const invSqrtD = 1 / Math.sqrt(D);
-  for (let i = 0;i < D; i++) {
-    x[i] = x[i] * invSqrtD;
-  }
-}
-function makeXorshift128(seedHex) {
-  const FNV_OFFSET = 2166136261;
-  const FNV_PRIME = 16777619;
-  const seeds = new Uint32Array(4);
-  for (let k = 0;k < 4; k++) {
-    let h = (FNV_OFFSET ^ k * 2654435769) >>> 0;
-    for (let i = 0;i < seedHex.length; i++) {
-      h ^= seedHex.charCodeAt(i);
-      h = Math.imul(h, FNV_PRIME) >>> 0;
-    }
-    seeds[k] = h === 0 ? 2654435769 : h;
-  }
-  let s0 = seeds[0];
-  let s1 = seeds[1];
-  let s2 = seeds[2];
-  let s3 = seeds[3];
-  return function next() {
-    let t = s0 ^ s0 << 11;
-    t ^= t >>> 8;
-    s0 = s1;
-    s1 = s2;
-    s2 = s3;
-    s3 = s3 ^ s3 >>> 19 ^ (t ^ t >>> 8);
-    return s3 >>> 0;
-  };
-}
-function rotateWithSeed(x, seedHex) {
-  const D = x.length;
-  const rng = makeXorshift128(seedHex);
-  for (let i = 0;i < D; i += 32) {
-    const word = rng();
-    const lim = Math.min(32, D - i);
-    for (let b = 0;b < lim; b++) {
-      const bit = word >>> b & 1;
-      if (bit === 0)
-        x[i + b] = -x[i + b];
-    }
-  }
-  fastHadamardTransform(x);
-}
-
-// src/compression/rabitq.ts
-var EMBED_DIM = 1536;
-var PADDED_DIM = 2048;
-var SIGN_BYTES = EMBED_DIM >> 3;
-var ROTATION_SEED = "cortex.rabitq.rotation.v1";
-var NORM_OFFSET = SIGN_BYTES;
-var ALIGN_OFFSET = SIGN_BYTES + 2;
-var CENTROID_OFFSET = SIGN_BYTES + 4;
-var PACK_SIZE = SIGN_BYTES + 2 + 2 + 2;
-var f32 = new Float32Array(1);
-var u322 = new Uint32Array(f32.buffer);
-function f32ToF16(value) {
-  f32[0] = value;
-  const x = u322[0];
-  const sign = x >>> 16 & 32768;
-  let mant = x & 8388607;
-  let exp = x >>> 23 & 255;
-  if (exp === 255) {
-    return sign | 31744 | (mant !== 0 ? 512 | mant >>> 13 : 0);
-  }
-  let newExp = exp - 127 + 15;
-  if (newExp >= 31) {
-    return sign | 31744;
-  }
-  if (newExp <= 0) {
-    if (newExp < -10)
-      return sign;
-    mant = (mant | 8388608) >>> 1 - newExp;
-    if ((mant & 4096) !== 0)
-      mant += 8192;
-    return sign | mant >>> 13;
-  }
-  if ((mant & 4096) !== 0) {
-    mant += 8192;
-    if ((mant & 8388608) !== 0) {
-      mant = 0;
-      newExp++;
-      if (newExp >= 31)
-        return sign | 31744;
-    }
-  }
-  return sign | newExp << 10 | mant >>> 13;
-}
-function f16ToF32(value) {
-  const sign = (value & 32768) << 16;
-  const exp = value >>> 10 & 31;
-  const mant = value & 1023;
-  let outBits;
-  if (exp === 0) {
-    if (mant === 0) {
-      outBits = sign;
-    } else {
-      let m = mant;
-      let e = 1;
-      while ((m & 1024) === 0) {
-        m <<= 1;
-        e--;
-      }
-      m &= 1023;
-      outBits = sign | e + 127 - 15 << 23 | m << 13;
-    }
-  } else if (exp === 31) {
-    outBits = sign | 2139095040 | mant << 13;
-  } else {
-    outBits = sign | exp + 127 - 15 << 23 | mant << 13;
-  }
-  u322[0] = outBits >>> 0;
-  return f32[0];
-}
-function padToRotationDim(vec) {
-  const out = new Float32Array(PADDED_DIM);
-  const n = Math.min(vec.length, EMBED_DIM);
-  for (let i = 0;i < n; i++)
-    out[i] = vec[i];
-  return out;
-}
-function l2Norm(vec) {
-  let s = 0;
-  for (let i = 0;i < vec.length; i++) {
-    const v = vec[i];
-    s += v * v;
-  }
-  return Math.sqrt(s);
-}
-function rotateUnit(vec) {
-  const padded = padToRotationDim(vec);
-  const norm = l2Norm(padded);
-  if (norm > 0) {
-    const inv = 1 / norm;
-    for (let i = 0;i < PADDED_DIM; i++)
-      padded[i] = padded[i] * inv;
-  }
-  rotateWithSeed(padded, ROTATION_SEED);
-  return { rotated: padded, norm };
-}
-function packSigns(rotated) {
-  const out = new Uint8Array(SIGN_BYTES);
-  for (let i = 0;i < EMBED_DIM; i++) {
-    if (rotated[i] >= 0) {
-      const byteIdx = i >>> 3;
-      const bitInByte = 7 - (i & 7);
-      out[byteIdx] = out[byteIdx] | 1 << bitInByte;
-    }
-  }
-  return out;
-}
-function signAt(signs, i) {
-  const byteIdx = i >>> 3;
-  const bitInByte = 7 - (i & 7);
-  return signs[byteIdx] >>> bitInByte & 1 ? 1 : -1;
-}
-function rabitqEncode(vec) {
-  const { rotated, norm } = rotateUnit(vec);
-  const signs = packSigns(rotated);
-  const invSqrtD = 1 / Math.sqrt(EMBED_DIM);
-  let align = 0;
-  for (let i = 0;i < EMBED_DIM; i++) {
-    const r = rotated[i];
-    align += r >= 0 ? r : -r;
-  }
-  align *= invSqrtD;
-  return {
-    signs,
-    normFp16: f32ToF16(norm),
-    alignFp16: f32ToF16(align)
-  };
-}
-function packCode(code) {
-  if (code.signs.length !== SIGN_BYTES) {
-    throw new Error(`packCode: signs must be ${SIGN_BYTES} bytes, got ${code.signs.length}`);
-  }
-  const out = new Uint8Array(PACK_SIZE);
-  out.set(code.signs, 0);
-  out[NORM_OFFSET] = code.normFp16 & 255;
-  out[NORM_OFFSET + 1] = code.normFp16 >>> 8 & 255;
-  out[ALIGN_OFFSET] = code.alignFp16 & 255;
-  out[ALIGN_OFFSET + 1] = code.alignFp16 >>> 8 & 255;
-  out[CENTROID_OFFSET] = 0;
-  out[CENTROID_OFFSET + 1] = 0;
-  return out;
-}
-function unpackCode(bytes) {
-  if (bytes.length !== PACK_SIZE) {
-    throw new Error(`unpackCode: expected ${PACK_SIZE} bytes, got ${bytes.length}`);
-  }
-  const signs = new Uint8Array(SIGN_BYTES);
-  signs.set(bytes.subarray(0, SIGN_BYTES));
-  const normFp16 = bytes[NORM_OFFSET] | bytes[NORM_OFFSET + 1] << 8;
-  const alignFp16 = bytes[ALIGN_OFFSET] | bytes[ALIGN_OFFSET + 1] << 8;
-  return { signs, normFp16, alignFp16 };
-}
-function rabitqInnerProduct(query, code) {
-  const { rotated: qRot, norm: qNorm } = rotateUnit(query);
-  const align = f16ToF32(code.alignFp16);
-  const vecNorm = f16ToF32(code.normFp16);
-  if (align === 0 || qNorm === 0 || vecNorm === 0)
-    return 0;
-  const invSqrtD = 1 / Math.sqrt(EMBED_DIM);
-  let dot = 0;
-  for (let i = 0;i < EMBED_DIM; i++) {
-    dot += signAt(code.signs, i) * qRot[i];
-  }
-  dot *= invSqrtD;
-  const unitIp = dot / align;
-  return unitIp * vecNorm * qNorm;
-}
-
-// src/lib/events.ts
-var RING_CAP_PER_TYPE = 200;
-var buffers = new Map;
-var dispatcher = new EventTarget;
-var wrappedListeners = new Set;
-var seq = 0;
-function publish(event) {
-  seq += 1;
-  const envelope = {
-    id: String(seq),
-    type: event.type,
-    event
-  };
-  const ring = buffers.get(event.type) ?? [];
-  ring.push(envelope);
-  if (ring.length > RING_CAP_PER_TYPE)
-    ring.shift();
-  buffers.set(event.type, ring);
-  dispatcher.dispatchEvent(new CustomEvent("evt", { detail: envelope }));
-  return envelope;
-}
-
-// src/compression/embeddings.ts
-init_cortex_config();
-var EMBED_DIM2 = 1536;
-var EMBED_FETCH_TIMEOUT_MS = 30000;
-var OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings";
-var OPENAI_MODEL = process.env["OPENAI_EMBED_MODEL"] ?? "text-embedding-3-small";
-var OPENROUTER_EMBED_URL = "https://openrouter.ai/api/v1/embeddings";
-var OPENROUTER_MODEL = process.env["OPENROUTER_EMBED_MODEL"] ?? "openai/text-embedding-3-small";
-var VOYAGE_EMBED_URL = "https://api.voyageai.com/v1/embeddings";
-var VOYAGE_MODEL = process.env["VOYAGE_EMBED_MODEL"] ?? "voyage-large-2";
-var COHERE_EMBED_URL = "https://api.cohere.com/v2/embed";
-var COHERE_MODEL = "embed-v4.0";
-
-class MissingEmbeddingKeyError extends Error {
-  isMissingEmbeddingKey = true;
-  constructor(message) {
-    super(message);
-    this.name = "MissingEmbeddingKeyError";
-  }
-}
-function isMissingEmbeddingKey(err) {
-  return err instanceof MissingEmbeddingKeyError || typeof err === "object" && err !== null && "isMissingEmbeddingKey" in err;
-}
-function isUsableEmbeddingKey(key) {
-  if (typeof key !== "string")
-    return false;
-  const v = key.trim();
-  if (v.length < 16)
-    return false;
-  if (/\.{2,}|\u2026|placeholder|your[-_]?key/i.test(v))
-    return false;
-  return true;
-}
-function envEmbeddingKey(name) {
-  const v = process.env[name];
-  return isUsableEmbeddingKey(v) ? v.trim() : undefined;
-}
-var EMBEDDING_SETUP_MESSAGE = [
-  "Cortex needs an embedding API key to turn your notes into searchable memory.",
-  "",
-  "Add ONE of these to your environment (your shell profile, or a .env in your project):",
-  "  \u2022 OPENAI_API_KEY=sk-\u2026        \u2190 get one at https://platform.openai.com/api-keys",
-  "  \u2022 OPENROUTER_API_KEY=sk-or-\u2026 \u2190 or https://openrouter.ai/keys",
-  "  \u2022 VOYAGE_API_KEY=\u2026           \u2190 Claude/Anthropic users: Anthropic has no embeddings",
-  "                                 API, so use Voyage (their recommended partner):",
-  "                                 https://dashboard.voyageai.com/",
-  "  \u2022 COHERE_API_KEY=\u2026           \u2190 or https://dashboard.cohere.com/api-keys",
-  "",
-  "Then restart your session. (Your text is only sent to that provider to embed;",
-  "the memory itself is encrypted with your wallet and stored on Arkiv.)"
-].join(`
-`);
-function toFloat32(arr, provider) {
-  if (!Array.isArray(arr)) {
-    throw new Error(`embedText: unexpected ${provider} response shape`);
-  }
-  if (arr.length !== EMBED_DIM2) {
-    throw new Error(`embedText: expected ${EMBED_DIM2}-d from ${provider}, got ${arr.length}. ` + `RaBitQ requires exactly ${EMBED_DIM2}-d \u2014 set OPENROUTER_EMBED_MODEL to a 1536-d model.`);
-  }
-  const out = new Float32Array(EMBED_DIM2);
-  for (let i = 0;i < EMBED_DIM2; i++)
-    out[i] = arr[i];
-  return out;
-}
-async function embedViaOpenAI(text, apiKey) {
-  const res = await fetch(OPENAI_EMBED_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      input: [text],
-      dimensions: EMBED_DIM2,
-      encoding_format: "float"
-    })
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`embedText: OpenAI request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
-  }
-  const json2 = await res.json();
-  const first = json2.data?.[0]?.embedding;
-  return toFloat32(first, `OpenAI(${OPENAI_MODEL})`);
-}
-async function embedViaOpenRouter(text, apiKey) {
-  const res = await fetch(OPENROUTER_EMBED_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      input: [text],
-      encoding_format: "float"
-    })
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`embedText: OpenRouter request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
-  }
-  const json2 = await res.json();
-  const first = json2.data?.[0]?.embedding;
-  return toFloat32(first, `OpenRouter(${OPENROUTER_MODEL})`);
-}
-async function embedViaVoyage(text, apiKey) {
-  const res = await fetch(VOYAGE_EMBED_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: VOYAGE_MODEL,
-      input: [text],
-      input_type: "document"
-    })
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`embedText: Voyage request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
-  }
-  const json2 = await res.json();
-  const first = json2.data?.[0]?.embedding;
-  return toFloat32(first, `Voyage(${VOYAGE_MODEL})`);
-}
-async function embedViaCohere(text, apiKey) {
-  const res = await fetch(COHERE_EMBED_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    signal: AbortSignal.timeout(EMBED_FETCH_TIMEOUT_MS),
-    body: JSON.stringify({
-      model: COHERE_MODEL,
-      texts: [text],
-      input_type: "search_document",
-      embedding_types: ["float"],
-      output_dimension: EMBED_DIM2
-    })
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`embedText: Cohere request failed ${res.status} ${res.statusText} \u2014 ${body.slice(0, 500)}`);
-  }
-  const json2 = await res.json();
-  const first = json2.embeddings?.float?.[0];
-  return toFloat32(first, "Cohere");
-}
-async function embedText(text) {
-  if (typeof text !== "string" || text.length === 0) {
-    throw new Error("embedText: input text must be a non-empty string");
-  }
-  const openAiKey = envEmbeddingKey("OPENAI_API_KEY");
-  if (openAiKey)
-    return embedViaOpenAI(text, openAiKey);
-  const openRouterKey = envEmbeddingKey("OPENROUTER_API_KEY");
-  if (openRouterKey)
-    return embedViaOpenRouter(text, openRouterKey);
-  const voyageKey = envEmbeddingKey("VOYAGE_API_KEY");
-  if (voyageKey)
-    return embedViaVoyage(text, voyageKey);
-  const cohereKey = envEmbeddingKey("COHERE_API_KEY");
-  if (cohereKey)
-    return embedViaCohere(text, cohereKey);
-  const cfg = readConfig();
-  if (cfg?.embeddingKey && isUsableEmbeddingKey(cfg.embeddingKey)) {
-    switch (cfg.embeddingProvider ?? "openai") {
-      case "openrouter":
-        return embedViaOpenRouter(text, cfg.embeddingKey);
-      case "voyage":
-        return embedViaVoyage(text, cfg.embeddingKey);
-      case "cohere":
-        return embedViaCohere(text, cfg.embeddingKey);
-      case "openai":
-      default:
-        return embedViaOpenAI(text, cfg.embeddingKey);
-    }
-  }
-  throw new MissingEmbeddingKeyError(EMBEDDING_SETUP_MESSAGE);
-}
+init_embeddings();
+init_rabitq();
 
 // node_modules/cbor-x/decode.js
 var decoder2;
@@ -52277,6 +52338,7 @@ if (!nativeAccelerationDisabled) {
 }
 
 // src/compression/document-payload.ts
+init_rabitq();
 var DOCUMENT_SCHEMA_VERSION = 1;
 var EMBED_DIM3 = 1536;
 function f32ToF16Bytes(vec) {
@@ -52361,27 +52423,24 @@ function decodeDocumentPayload(bytes) {
 
 // src/darwinian/recall.ts
 init_constants();
+init_events();
 init_crypto();
 
 // src/lib/payload-key.ts
 init_crypto();
-init_cortex_config();
+init_credentials();
 var _cached3;
-var SIG_RE2 = /^0x[0-9a-fA-F]+$/;
-var PK_RE2 = /^0x[0-9a-fA-F]{64}$/;
 async function resolveSignature() {
-  const sig = process.env.CORTEX_USER_SIGNATURE;
-  if (sig && SIG_RE2.test(sig))
-    return sig;
-  const pk = process.env.CORTEX_USER_PRIVATE_KEY;
-  if (pk && PK_RE2.test(pk)) {
-    const account = privateKeyToAccount(pk);
+  const creds = resolveCredentials();
+  if (creds.source.signature === "env")
+    return creds.userSignature;
+  if (creds.userPrivateKey) {
+    const account = privateKeyToAccount(creds.userPrivateKey);
     const message = keyDerivationMessage(account.address);
     return await account.signMessage({ message });
   }
-  const cfgSig = readConfig()?.userSignature;
-  if (cfgSig && SIG_RE2.test(cfgSig))
-    return cfgSig;
+  if (creds.source.signature === "config")
+    return creds.userSignature;
   return null;
 }
 async function getPayloadKey() {
@@ -53534,7 +53593,8 @@ function eq(key, value) {
 
 // src/lib/arkiv-client.ts
 init_constants();
-init_cortex_config();
+init_events();
+init_credentials();
 var _publicClient;
 var _walletClient;
 function getPublicClient() {
@@ -53554,7 +53614,7 @@ function getPublicClient() {
 function getWalletClient() {
   if (_walletClient)
     return _walletClient;
-  const pk = process.env.SESSION_KEY_PRIVATE_KEY ?? readConfig()?.sessionKeyPrivate;
+  const pk = resolveCredentials().sessionKeyPrivate;
   if (!pk) {
     throw new Error("No session key. Run `cortex auth` (connect your wallet) \u2014 or set " + "SESSION_KEY_PRIVATE_KEY and fund the EOA via " + BRAGA.faucet);
   }
@@ -54252,19 +54312,28 @@ async function recall(opts) {
   }
   const embed = opts._deps?.embedQuery ?? embedText;
   const fetchCandidates = opts._deps?.fetchCandidates ?? defaultFetchCandidates;
-  const queryEmbedding = await embed(opts.query);
+  let queryEmbedding = null;
   try {
-    const t0 = performance.now();
-    const packed = packCode(rabitqEncode(queryEmbedding));
-    publish({
-      type: "rabitq.encoded",
-      ts: Date.now(),
-      dim: queryEmbedding.length,
-      bytes: packed.byteLength,
-      ratio: queryEmbedding.length * 4 / packed.byteLength,
-      ms: performance.now() - t0
-    });
-  } catch {}
+    queryEmbedding = await embed(opts.query);
+  } catch (err) {
+    if (!isMissingEmbeddingKey(err))
+      throw err;
+    queryEmbedding = null;
+  }
+  if (queryEmbedding) {
+    try {
+      const t0 = performance.now();
+      const packed = packCode(rabitqEncode(queryEmbedding));
+      publish({
+        type: "rabitq.encoded",
+        ts: Date.now(),
+        dim: queryEmbedding.length,
+        bytes: packed.byteLength,
+        ratio: queryEmbedding.length * 4 / packed.byteLength,
+        ms: performance.now() - t0
+      });
+    } catch {}
+  }
   const candidates = await fetchCandidates(opts.entityType, opts.project);
   const payloadKey = await getPayloadKey();
   const hits = [];
@@ -54295,25 +54364,31 @@ async function recall(opts) {
       if (raw) {
         try {
           const doc2 = decodeDocumentPayload(raw);
-          let stage1 = 0;
-          try {
-            stage1 = rabitqInnerProduct(queryEmbedding, unpackCode(doc2.code));
-          } catch {}
-          let bestOffset = 0;
-          for (const s of doc2.sections) {
+          if (!queryEmbedding) {
+            score = textOverlapScore(opts.query, doc2.text);
+            docText = doc2.text;
+            preview = doc2.text.slice(0, PREVIEW_LIMIT);
+          } else {
+            let stage1 = 0;
             try {
-              const ss = rabitqInnerProduct(queryEmbedding, unpackCode(s.code));
-              if (ss > stage1) {
-                stage1 = ss;
-                bestOffset = s.offset;
-              }
+              stage1 = rabitqInnerProduct(queryEmbedding, unpackCode(doc2.code));
             } catch {}
+            let bestOffset = 0;
+            for (const s of doc2.sections) {
+              try {
+                const ss = rabitqInnerProduct(queryEmbedding, unpackCode(s.code));
+                if (ss > stage1) {
+                  stage1 = ss;
+                  bestOffset = s.offset;
+                }
+              } catch {}
+            }
+            score = cosineF32(queryEmbedding, doc2.rerankEmbedding);
+            if (!Number.isFinite(score) || score === 0)
+              score = stage1;
+            docText = doc2.text;
+            preview = doc2.text.slice(bestOffset, bestOffset + PREVIEW_LIMIT);
           }
-          score = cosineF32(queryEmbedding, doc2.rerankEmbedding);
-          if (!Number.isFinite(score) || score === 0)
-            score = stage1;
-          docText = doc2.text;
-          preview = doc2.text.slice(bestOffset, bestOffset + PREVIEW_LIMIT);
         } catch {
           score = 0;
         }
@@ -54334,7 +54409,7 @@ async function recall(opts) {
         }
       }
     } else {
-      if (raw && raw.length === RABITQ_PACK_SIZE) {
+      if (queryEmbedding && raw && raw.length === RABITQ_PACK_SIZE) {
         try {
           const code = unpackCode(raw);
           score = rabitqInnerProduct(queryEmbedding, code);
@@ -54434,7 +54509,11 @@ async function fetchCandidatesFromArkiv(entityType, project) {
   }));
 }
 
+// src/openclaw/adapter.ts
+init_embeddings();
+
 // src/lib/batch-writer.ts
+init_events();
 init_crypto();
 init_constants();
 var TIER_BY_ENTITY_TYPE = {
@@ -54564,6 +54643,7 @@ ${lines.join(`
 // src/darwinian/citation.ts
 init__esm();
 init_constants();
+init_events();
 function defaultEntityTypeOf(db, entityKey) {
   const cached2 = db.prepare("SELECT entity_type FROM citation_counts WHERE entity_key = ?").get(entityKey);
   if (cached2?.entity_type) {
@@ -54739,6 +54819,7 @@ function buildCitationPayload(action, citations, scores) {
 }
 
 // src/agent/session-summary.ts
+init_embeddings();
 async function storeSessionSummary(input) {
   if (typeof input.summary !== "string" || input.summary.trim().length === 0) {
     throw new Error("storeSessionSummary: summary must be a non-empty string");
@@ -54757,6 +54838,43 @@ async function storeSessionSummary(input) {
     kind: "session-summary",
     tierLevel: 1
   });
+}
+
+// src/mcp/server.ts
+init_embeddings();
+init_credentials();
+
+// src/lib/braga-preflight.ts
+init_constants();
+function formatBragaError(error51) {
+  const parts = [];
+  let cur = error51;
+  const seen = new Set;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    if (cur instanceof Error) {
+      if (cur.message && !parts.includes(cur.message))
+        parts.push(cur.message);
+      const x = cur;
+      if (x.details && !parts.includes(x.details))
+        parts.push(x.details);
+      if (x.shortMessage && !parts.includes(x.shortMessage))
+        parts.push(x.shortMessage);
+      cur = x.cause;
+    } else
+      break;
+  }
+  const combined = parts.join(" \u2014 ");
+  if (/replacement transaction underpriced/i.test(combined)) {
+    return "Stuck pending Braga tx \u2014 cancel or speed up in your wallet, then retry.";
+  }
+  if (/rejected|denied|cancelled/i.test(combined)) {
+    return "Transaction rejected in wallet.";
+  }
+  if (/insufficient|funds|balance|GLM/i.test(combined)) {
+    return `${combined} ` + `On Braga, GLM is the native gas coin (not an ERC-20 token list entry). ` + `In MetaMask, switch to the Braga network (chain ${BRAGA.chainId}) \u2014 your L3/explorer balance is only spendable there. ` + `Fund: ${BRAGA.faucet}`;
+  }
+  return combined || "Braga transaction failed \u2014 switch to Braga testnet and retry.";
 }
 
 // src/mcp/server.ts
@@ -54789,20 +54907,20 @@ server.registerTool("cortex_recall", {
 });
 server.registerTool("cortex_act", {
   title: "Cortex act",
-  description: "Record a decision and cite the memories that informed it. Each valid " + "citation fires an accumulative lease extension (remaining + reinforcement) " + "so useful memories survive and the rest decay for free. Citations are " + "validated against the most recent cortex_recall in this session.",
+  description: "Record a decision and cite the memories that informed it. Each valid " + "citation fires an accumulative lease extension (+24h per citation) " + "so useful memories survive and the rest decay for free. Citations are " + "validated against the most recent cortex_recall in this session.",
   inputSchema: {
     action: exports_external.string().min(1).describe("The decision/action being taken."),
     citations: exports_external.array(exports_external.string()).describe("Entity ids from the latest cortex_recall that you used.")
   }
 }, async ({ action, citations }) => {
-  const userPrimaryEOA = process.env.USER_PRIMARY_ADDRESS;
+  const userPrimaryEOA = resolveCredentials().ownerEOA ?? undefined;
   if (!userPrimaryEOA) {
     return {
       isError: true,
       content: [
         {
           type: "text",
-          text: "cortex_act unavailable: USER_PRIMARY_ADDRESS is not set. Cortex needs the owner EOA to attribute tier promotions."
+          text: "cortex_act unavailable: no owner wallet. Run `cortex auth` (writes your " + "owner address to ~/.cortex/config.json) or set USER_PRIMARY_ADDRESS. " + "Cortex needs the owner EOA to attribute tier promotions."
         }
       ]
     };
@@ -54880,7 +54998,7 @@ ${msg}` }] };
       content: [
         {
           type: "text",
-          text: `cortex_store_document failed: ${msg}
+          text: `cortex_store_document failed: ${formatBragaError(err)}
 ` + `(Needs a configured wallet: SESSION_KEY_PRIVATE_KEY for the write + ` + `CORTEX_USER_SIGNATURE or CORTEX_USER_PRIVATE_KEY to derive the seal key, ` + `plus an embedding provider key.)`
         }
       ]
@@ -54926,7 +55044,7 @@ ${msg}` }] };
     }
     return {
       isError: true,
-      content: [{ type: "text", text: `cortex_summarize_session failed: ${msg}` }]
+      content: [{ type: "text", text: `cortex_summarize_session failed: ${formatBragaError(err)}` }]
     };
   }
 });

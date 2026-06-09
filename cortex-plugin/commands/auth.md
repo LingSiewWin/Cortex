@@ -9,6 +9,11 @@ Run the Cortex onboarding flow: it generates a local session key, opens your
 browser to connect your wallet, you sign once, and it writes `~/.cortex/config.json`
 so the plugin can read/write your sovereign memory on Arkiv.
 
+> **Requires [`bun`](https://bun.sh) on your PATH.** The plugin's hooks, MCP server,
+> and this command all run as bundled `bun` scripts. If `bun` isn't installed you'll
+> see `command not found: bun` — install it (`curl -fsSL https://bun.sh/install | bash`)
+> and re-run. No other global install is needed.
+
 Run this command:
 
 ```bash

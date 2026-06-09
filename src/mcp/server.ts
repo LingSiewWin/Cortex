@@ -39,6 +39,7 @@ import { createDocumentMemory } from "../lib/batch-writer.ts";
 import { storeSessionSummary } from "../agent/session-summary.ts";
 import { embedText, isMissingEmbeddingKey } from "../compression/embeddings.ts";
 import { resolveCredentials } from "../lib/credentials.ts";
+import { formatBragaError } from "../lib/braga-preflight.ts";
 import { BRAGA } from "../constants.ts";
 
 const VERSION = "0.1.0";
@@ -226,8 +227,10 @@ server.registerTool(
         content: [
           {
             type: "text" as const,
+            // Route through formatBragaError so an unfunded session key surfaces the
+            // Braga faucet link + network hint instead of a raw revert string.
             text:
-              `cortex_store_document failed: ${msg}\n` +
+              `cortex_store_document failed: ${formatBragaError(err)}\n` +
               `(Needs a configured wallet: SESSION_KEY_PRIVATE_KEY for the write + ` +
               `CORTEX_USER_SIGNATURE or CORTEX_USER_PRIVATE_KEY to derive the seal key, ` +
               `plus an embedding provider key.)`,
@@ -288,7 +291,7 @@ server.registerTool(
       }
       return {
         isError: true,
-        content: [{ type: "text" as const, text: `cortex_summarize_session failed: ${msg}` }],
+        content: [{ type: "text" as const, text: `cortex_summarize_session failed: ${formatBragaError(err)}` }],
       };
     }
   },
