@@ -1,0 +1,37 @@
+name: plugin-dist-check
+
+# Guards against the stale-bundle class of bug: the committed cortex-plugin/dist
+# bundles MUST match what `bun run build:plugin` produces from src. If a source fix
+# lands without rebuilding dist, marketplace installers silently run pre-fix code.
+# This job rebuilds and fails the PR if the committed dist differs.
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "ui/connect/**"
+      - "cortex-plugin/dist/**"
+      - "scripts/build-plugin.ts"
+      - ".github/workflows/dist-check.yml"
+  push:
+    branches: [main]
+
+jobs:
+  dist-matches-src:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Rebuild plugin bundles
+        run: bun run build:plugin
+      - name: Fail if committed dist is stale
+        run: |
+          if ! git diff --exit-code -- cortex-plugin/dist; then
+            echo "::error::cortex-plugin/dist is out of date with src. Run 'bun run build:plugin' and commit the result."
+            exit 1
+          fi
+          echo "✓ cortex-plugin/dist matches a fresh build from src."
