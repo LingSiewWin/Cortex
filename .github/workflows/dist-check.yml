@@ -35,10 +35,15 @@ jobs:
       - name: Fail if committed dist is stale
         run: |
           # Guard the five RUNTIME bundles (hooks, drain, auth, mcp) — the code
-          # marketplace installs actually execute. dist/connect/* are content-
-          # hashed browser assets whose filenames vary across bun builds; a
-          # rename there is not staleness, so exclude them from the diff.
-          if ! git diff --exit-code -- cortex-plugin/dist ':(exclude)cortex-plugin/dist/connect'; then
+          # marketplace installs actually execute. Two classes of machine-local
+          # noise are excluded so the check is deterministic:
+          #   - dist/connect/*: content-hashed browser assets whose FILENAMES
+          #     vary across bun builds; a rename there is not staleness.
+          #   - absolute build paths: bun inlines __filename/__dirname literals
+          #     for CJS deps (bindings, cbor-extract), so the committed bundle
+          #     carries the builder's machine path and CI's rebuild carries
+          #     /home/runner/... — ignore lines that differ only by that.
+          if ! git diff -I'(/Users/|/home/runner/|/home/[^/]+/work/)' --exit-code -- cortex-plugin/dist ':(exclude)cortex-plugin/dist/connect'; then
             echo "::error::cortex-plugin/dist is out of date with src. Run 'bun run build:plugin' and commit the result."
             exit 1
           fi
