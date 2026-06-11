@@ -65,7 +65,7 @@ interface WalletUploadProps {
 
 export function WalletUpload({ onStored, onInspectKey }: WalletUploadProps) {
   const { isConnected } = useAccount();
-  const { upload, step, error, lastTx, lastEntityKey, identity } = useBrowserUpload();
+  const { upload, step, error, lastTx, lastEntityKey, lastGas, identity } = useBrowserUpload();
   const {
     quote,
     prepared,
@@ -303,6 +303,13 @@ export function WalletUpload({ onStored, onInspectKey }: WalletUploadProps) {
             {" · "}
             graph refreshes in a few seconds
           </p>
+          {lastGas ? (
+            <p className="wallet-upload-gas mono" title="Measured from the on-chain receipt (gasUsed × effectiveGasPrice) — the actual L2 execution fee your wallet paid, not a pre-sign estimate.">
+              ⛽ your wallet burned{" "}
+              <strong>{Number(lastGas.feeGlm).toFixed(8)} GLM</strong> ·{" "}
+              {Number(lastGas.gasUsed).toLocaleString()} gas @ {Number(lastGas.effectiveGasPriceGwei).toFixed(4)} gwei
+            </p>
+          ) : null}
           {lastEntityKey ? (
             <p className="wallet-upload-entity mono">
               memory key{" "}

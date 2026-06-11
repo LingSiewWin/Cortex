@@ -54010,9 +54010,27 @@ function migrateAddOutbox(db) {
     db.exec("ALTER TABLE citation_counts ADD COLUMN anchored_root TEXT;");
   }
 }
+function rowToOutbox(r) {
+  return {
+    id: r.id,
+    kind: r.kind,
+    bundle: JSON.parse(r.payload_json),
+    status: r.status,
+    attempts: r.attempts,
+    lastError: r.last_error,
+    createdAtMs: r.created_at_ms,
+    sentTxHashes: r.sent_tx_hashes ? JSON.parse(r.sent_tx_hashes) : null,
+    citationEntityKey: r.citation_entity_key,
+    reconciledAtMs: r.reconciled_at_ms
+  };
+}
 function enqueueOutbox(db, kind, bundle) {
   const res = db.prepare("INSERT INTO outbox (kind, payload_json, status, created_at_ms) VALUES (?, ?, 'pending', ?)").run(kind, JSON.stringify(bundle), Date.now());
   return Number(res.lastInsertRowid);
+}
+function listPendingOutbox(db, limit = 50) {
+  const rows = db.prepare("SELECT * FROM outbox WHERE status = 'pending' ORDER BY id ASC LIMIT ?").all(limit);
+  return rows.map(rowToOutbox);
 }
 function migrateAddUtilityWeights(db) {
   const cols = db.prepare("PRAGMA table_info(citation_counts)").all();
@@ -54098,6 +54116,10 @@ function decodeAttributes(json2) {
   if (!json2)
     return [];
   return JSON.parse(json2);
+}
+function getDaemonState(db, key) {
+  const row = db.prepare("SELECT value FROM daemon_state WHERE key = ?").get(key);
+  return row?.value ?? null;
 }
 
 // src/mirror/replay.ts
@@ -54711,6 +54733,7 @@ async function act(opts) {
       action: opts.action,
       citations: [],
       extendedKeys: [],
+      receipts: [],
       promotedKeys: [],
       status: "noop",
       outboxId: null,
@@ -54723,6 +54746,15 @@ async function act(opts) {
   const recallRanks = getLastRecallRanks();
   const recallK = getLastRecallK();
   const citationCount = validCitations.length;
+  const headBlock = Number(getDaemonState(db, "last_processed_block") ?? "0");
+  const blockTime = BRAGA.blockTimeSeconds;
+  const pendingByKey = new Map;
+  for (const ob of listPendingOutbox(db, 500)) {
+    for (const it of ob.bundle.reinforceItems) {
+      const k = it.entityKey;
+      pendingByKey.set(k, (pendingByKey.get(k) ?? 0) + it.reinforcementSeconds);
+    }
+  }
   for (const entityKey of validCitations) {
     const cachedType = entityTypeOf(entityKey);
     const priorWeight = getMemoryWeight(db, entityKey, UTILITY.wInit);
@@ -54776,6 +54808,37 @@ async function act(opts) {
     const tier = r?.promotedTo === "rule" || baseType === "rule" ? "rule" : r?.promotedTo === "episode" || baseType === "episode" ? "episode" : "observation";
     return { key, tier, weight: r?.weight ?? UTILITY.wInit, citationCount: r?.count ?? 0 };
   });
+  const reinforceByKey = new Map(reinforceItems.map((i) => [i.entityKey, i.reinforcementSeconds]));
+  const baselineStmt = db.prepare("SELECT expires_at_block FROM entities WHERE entity_key = ?");
+  const SANE_MAX_LEASE_SECONDS = REINFORCEMENT.semanticInitialSeconds;
+  const receipts = scores.map((s) => {
+    const delta = reinforceByKey.get(s.key) ?? 0;
+    const baseRow = baselineStmt.get(s.key);
+    const pendingSeconds = pendingByKey.get(s.key) ?? 0;
+    let remainingSeconds;
+    let estimated;
+    if (baseRow && baseRow.expires_at_block > 0 && headBlock > 0) {
+      const raw = Math.max(0, baseRow.expires_at_block - headBlock) * blockTime;
+      remainingSeconds = Math.min(raw, SANE_MAX_LEASE_SECONDS);
+      estimated = raw > SANE_MAX_LEASE_SECONDS;
+    } else {
+      remainingSeconds = REINFORCEMENT.initialWorkingSeconds;
+      estimated = true;
+    }
+    const projectedLeaseSeconds = remainingSeconds + pendingSeconds + delta;
+    return {
+      id: `cortex://${s.key}`,
+      key: s.key,
+      deltaSecondsThisCite: delta,
+      projectedLeaseSeconds,
+      projectedExpiresAtBlock: headBlock + Math.round(projectedLeaseSeconds / blockTime),
+      tier: s.tier,
+      weightAfter: s.weight,
+      citationCountAfter: s.citationCount,
+      outcomeApplied: opts.outcome ?? UTILITY.defaultOutcome,
+      estimated
+    };
+  });
   const built = buildCitationPayload(opts.action, validCitations, scores);
   const bundle = {
     action: opts.action,
@@ -54793,6 +54856,7 @@ async function act(opts) {
     action: opts.action,
     citations: validCitations,
     extendedKeys: reinforceItems.map((i) => i.entityKey),
+    receipts,
     promotedKeys,
     status: "queued",
     outboxId,
@@ -54907,12 +54971,13 @@ server.registerTool("cortex_recall", {
 });
 server.registerTool("cortex_act", {
   title: "Cortex act",
-  description: "Record a decision and cite the memories that informed it. Each valid " + "citation fires an accumulative lease extension (+24h per citation) " + "so useful memories survive and the rest decay for free. Citations are " + "validated against the most recent cortex_recall in this session.",
+  description: "Record a decision and cite the memories that informed it. Each valid " + "citation fires an accumulative lease extension (+24h baseline, scaled up " + "by the memory's proven utility) so useful memories survive and the rest " + "decay for free. Pass `outcome` when you know whether the cited memories " + "actually helped \u2014 that makes reinforcement utility-gated, not just " + "citation-gated. Citations are validated against the most recent " + "cortex_recall in this session.",
   inputSchema: {
     action: exports_external.string().min(1).describe("The decision/action being taken."),
-    citations: exports_external.array(exports_external.string()).describe("Entity ids from the latest cortex_recall that you used.")
+    citations: exports_external.array(exports_external.string()).describe("Entity ids from the latest cortex_recall that you used."),
+    outcome: exports_external.number().min(0).max(1).optional().describe("How useful the cited memories were for this action, in [0,1]: " + "1 = led to a correct/successful result, 0 = wrong or unhelpful, " + "omit if unknown (defaults to neutral). Feeds the SEDM utility weight.")
   }
-}, async ({ action, citations }) => {
+}, async ({ action, citations, outcome }) => {
   const userPrimaryEOA = resolveCredentials().ownerEOA ?? undefined;
   if (!userPrimaryEOA) {
     return {
@@ -54928,7 +54993,8 @@ server.registerTool("cortex_act", {
   const res = await act({
     action,
     citations,
-    userPrimaryEOA
+    userPrimaryEOA,
+    ...outcome !== undefined ? { outcome } : {}
   });
   if (res.status === "noop") {
     return {
@@ -54940,11 +55006,12 @@ server.registerTool("cortex_act", {
       ]
     };
   }
+  const fmtLease = (s) => s >= 86400 ? `~${(s / 86400).toFixed(1)}d` : `~${Math.max(1, Math.round(s / 3600))}h`;
   const lines = [
     `Recorded decision: "${action}"`,
-    `Reinforced ${res.extendedKeys.length} memory(ies) \u2014 leases extended (accumulative).`,
+    ...res.receipts.map((r) => `${r.id} \u2192 +${(r.deltaSecondsThisCite / 3600).toFixed(1)}h queued this cite; ` + `projected lease ${fmtLease(r.projectedLeaseSeconds)}${r.estimated ? " (est.)" : ""}; ` + `tier ${r.tier} (w=${r.weightAfter.toFixed(2)}, cites=${r.citationCountAfter}, outcome=${r.outcomeApplied})`),
     res.promotedKeys.length > 0 ? `Promoted ${res.promotedKeys.length} to a higher tier.` : null,
-    `On-chain citation bundle queued (outbox #${res.outboxId}); anchors when a Cortex worker drains it.`,
+    `On-chain citation bundle queued (outbox #${res.outboxId}); anchors on Braga when a Cortex worker drains it.`,
     res.citationPayloadHashHex ? `MMR leaf (citation hash): ${res.citationPayloadHashHex}` : null
   ].filter(Boolean);
   return { content: [{ type: "text", text: lines.join(`

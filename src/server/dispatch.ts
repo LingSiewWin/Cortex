@@ -18,6 +18,7 @@ import {
 import { handleSSE } from "../api/sse";
 import { handleTopologyRequest } from "../topology/build-from-mirror";
 import { handleManualCitation } from "../api/citation";
+import { handleDecayTimelineRequest } from "./decay-timeline";
 import { handleAdoptRequest, handleAuthMe } from "../api/auth-adopt";
 import { handleSeedRequest } from "../api/seed";
 import { handleStoreFileRequest, handleStoreFilePrepareRequest } from "../api/store-file";
@@ -52,6 +53,7 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/listings": handleListingsRequest,
   "/api/economics": handleEconomicsRequest,
   "/api/decay": handleDecayRequest,
+  "/api/decay/timeline": handleDecayTimelineRequest,
   "/api/topology": handleTopologyRequest,
   "/api/auth/siwe/init": { POST: handleSiweInit },
   "/api/auth/siwe/verify": { POST: handleSiweVerify },

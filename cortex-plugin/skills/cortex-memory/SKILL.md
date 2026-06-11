@@ -27,7 +27,10 @@ more with `cortex_recall` when you need it.
    *most recent* `cortex_recall`. Each valid citation fires an accumulative
    lease extension — this is how useful memory survives. Do NOT cite ids you
    did not use; hallucinated/unused citations are dropped and waste nothing, but
-   they also teach the engine nothing.
+   they also teach the engine nothing. When you can tell whether the recalled
+   memory actually helped, pass `outcome` (0–1: 1 = it led to a correct result,
+   0 = it was wrong/unhelpful) — that makes reinforcement *utility-gated*, so
+   genuinely useful memories earn longer leases than merely-often-cited ones.
 
 3. **Store salient decisions.** When you settle an architectural decision,
    resolve a non-obvious bug, or establish a convention, capture it:

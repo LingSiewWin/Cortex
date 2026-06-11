@@ -12,19 +12,23 @@
  *   2. read the transcript JSONL and deterministically extract user goals +
  *      assistant decisions into a concise summary (NO LLM call — hooks must be
  *      fast/offline; `PreCompact` cannot block/delay compaction),
- *   3. best-effort `storeSessionSummary(...)` to Arkiv with a short timeout; if
- *      the wallet/embedding provider/Arkiv is unavailable we WRITE THE SUMMARY
- *      to a local pending file under the plugin data dir and exit 0.
+ *   3. ALWAYS write the summary to a local pending file (atomic) under the plugin
+ *      data dir, then hand the slow Arkiv write to a DETACHED background drainer
+ *      (scripts/cortex-drain.ts) and exit 0 — never an inline chain write, since
+ *      `PreCompact` cannot block/delay compaction. The drainer owns retries; the
+ *      SessionStart hook also re-kicks it, so a queued summary is never lost.
  *
  * Invariant: this process NEVER throws and ALWAYS exits 0. A capture hook that
  * hangs or crashes would degrade the user's coding session — capture is
  * best-effort by design (local-mirror-first, retry on next SessionStart).
  */
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { join, basename } from "node:path";
+import { mkdirSync, writeFileSync, renameSync, readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { resolveProject } from "../src/lib/project-identity.ts";
 
 // --- hook contract ---------------------------------------------------------
 
@@ -51,52 +55,9 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-// --- project identity ------------------------------------------------------
-
-/**
- * Resolve a stable project id: `git remote get-url origin` of `cwd`, normalized
- * to `host/owner/repo`; fallback to the cwd basename. Matches the identity the
- * SessionStart recall hook uses so capture and recall agree on `project`.
- */
-function resolveProject(cwd: string): string {
-  try {
-    const url = execFileSync("git", ["remote", "get-url", "origin"], {
-      cwd,
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2_000,
-    })
-      .toString()
-      .trim();
-    const norm = normalizeRemote(url);
-    if (norm) return norm;
-  } catch {
-    /* not a git repo, no origin, or git missing — fall through */
-  }
-  try {
-    return basename(cwd) || "unknown-project";
-  } catch {
-    return "unknown-project";
-  }
-}
-
-/** git@host:owner/repo.git | https://host/owner/repo.git → host/owner/repo */
-function normalizeRemote(url: string): string | null {
-  if (!url) return null;
-  let s = url.trim();
-  s = s.replace(/\.git$/, "");
-  // scp-style: git@github.com:owner/repo
-  const scp = s.match(/^[^@]+@([^:]+):(.+)$/);
-  if (scp) return `${scp[1]}/${scp[2]}`;
-  // url-style: https://github.com/owner/repo  or  ssh://git@host/owner/repo
-  try {
-    const u = new URL(s);
-    const path = u.pathname.replace(/^\/+/, "");
-    if (u.hostname && path) return `${u.hostname}/${path}`;
-  } catch {
-    /* not a URL */
-  }
-  return s || null;
-}
+// Project identity is resolved by the shared src/lib/project-identity.ts module
+// so capture (which stamps `workspace`) and recall (which queries by it) can
+// never drift — see that file's header.
 
 // --- transcript → summary (deterministic, offline) -------------------------
 
@@ -164,11 +125,23 @@ const DECISION_CUES =
  *   ## Decisions & outcomes (what the assistant did)
  *   - ...
  */
+interface BuiltSummary {
+  /** The rendered markdown summary. */
+  text: string;
+  /**
+   * True when the transcript yielded at least one real goal or decision.
+   * When false, the summary is just the boilerplate header + "(no clear …
+   * extracted)" placeholders and is NOT worth a sealed chain write — capture
+   * skips it instead of paying gas to store an empty husk (recon GAP 3).
+   */
+  meaningful: boolean;
+}
+
 function buildSummary(
   msgs: TranscriptMsg[],
   project: string,
   sessionId: string,
-): string {
+): BuiltSummary {
   const userTurns = msgs.filter((m) => m.role === "user");
   const asstTurns = msgs.filter((m) => m.role === "assistant");
 
@@ -214,14 +187,18 @@ function buildSummary(
   if (summary.length > MAX_SUMMARY_CHARS) {
     summary = summary.slice(0, MAX_SUMMARY_CHARS) + "\n…(truncated)";
   }
-  return summary;
+  return { text: summary, meaningful: goals.length > 0 || decisions.length > 0 };
 }
 
 function firstMeaningfulLine(text: string): string | null {
   for (const raw of text.split("\n")) {
     const s = raw.trim().replace(/\s+/g, " ");
-    // Skip slash-commands, tool noise, fenced code openers, empty lines.
-    if (!s || s.startsWith("/") || s.startsWith("```") || s.startsWith("<")) continue;
+    // Skip slash-commands, fenced code openers, and markup noise (closing tags,
+    // comments/doctypes) — but NOT real content that opens with a tag like
+    // "<Component> should …" or "<div> renders …", which a frontend-heavy session
+    // legitimately uses as a goal (over-broad "<" dropped those and could empty
+    // the whole summary — recon B2).
+    if (!s || s.startsWith("/") || s.startsWith("```") || s.startsWith("</") || s.startsWith("<!")) continue;
     if (s.length < 4) continue;
     return s.length > 240 ? s.slice(0, 240) + "…" : s;
   }
@@ -265,8 +242,22 @@ interface PendingSummary {
 
 function queuePending(p: PendingSummary): string {
   const dir = dataDir();
-  const file = join(dir, `${safeName(p.project)}__${safeName(p.sessionId)}.json`);
-  writeFileSync(file, JSON.stringify(p, null, 2), "utf-8");
+  // safeName collapses every non-alnum to `_` and truncates, so two distinct raw
+  // projects ("a/b" vs "a_b", or long monorepo paths differing past char 120)
+  // could sanitize to the SAME name and silently overwrite each other (recon B1).
+  // Disambiguate with a short hash of the RAW project+sessionId. The same
+  // (project, sessionId) still maps to one file, so a re-capture of the same
+  // session overwrites itself (idempotent), but different sessions never collide.
+  const tag = createHash("sha1").update(`${p.project}\0${p.sessionId}`).digest("hex").slice(0, 8);
+  const file = join(dir, `${safeName(p.project)}__${safeName(p.sessionId)}__${tag}.json`);
+  // Atomic write: serialize to a temp file in the same dir, then rename over the
+  // target. rename(2) is atomic within a filesystem, so the SessionStart drainer
+  // (a separate, possibly concurrent process) only ever sees a fully-written
+  // file — never a torn read mid-write (recon GAP 2). A repeated capture for the
+  // same session deliberately overwrites with the fresher summary.
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(p, null, 2), "utf-8");
+  renameSync(tmp, file);
   return file;
 }
 
@@ -301,13 +292,16 @@ async function main(): Promise<void> {
 
   // Build the summary from the transcript (deterministic, offline).
   let summary = "";
+  let meaningful = false;
   try {
     const path = event.transcript_path;
     if (path && existsSync(path)) {
       let raw = readFileSync(path, "utf-8");
       if (raw.length > MAX_TRANSCRIPT_BYTES) raw = raw.slice(-MAX_TRANSCRIPT_BYTES);
       const msgs = parseTranscript(raw);
-      summary = buildSummary(msgs, project, sessionId);
+      const built = buildSummary(msgs, project, sessionId);
+      summary = built.text;
+      meaningful = built.meaningful;
     } else {
       log(`transcript_path missing or not found: ${path}`);
     }
@@ -315,9 +309,13 @@ async function main(): Promise<void> {
     log("transcript parse failed:", err);
   }
 
-  if (!summary.trim()) {
-    // Nothing to store — still exit cleanly.
-    log(`no summary produced for project=${project} session=${sessionId}; nothing to capture.`);
+  if (!summary.trim() || !meaningful) {
+    // Either no summary, or only boilerplate with no extracted goal/decision —
+    // not worth a sealed chain write. Exit cleanly without queuing an empty husk
+    // (recon GAP 3: empty summaries were silently queued + written).
+    log(
+      `no meaningful summary for project=${project} session=${sessionId}; nothing to capture.`,
+    );
     return;
   }
 

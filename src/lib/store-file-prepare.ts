@@ -54,6 +54,16 @@ export async function prepareUploadedFile(
     }
   }
 
+  // SOVEREIGNTY BOUNDARY (be precise in any pitch/marketing): the *payload* is
+  // sealed client-side (browser-store-document.ts) and Braga only ever holds
+  // ciphertext. But embedding needs a provider key, so on the HOSTED console this
+  // `prepare` step runs server-side and the server sees the plaintext `text`
+  // momentarily to compute the embedding. So "encrypted client-side" is true;
+  // "the server never sees your data" is NOT true for the hosted console.
+  // (The plugin path is fully sovereign: it embeds locally with the USER's own
+  // key from ~/.cortex/config.json, so no third party ever sees plaintext.)
+  // To make the console equally sovereign, embed in-browser with a user-supplied
+  // key — tracked as a follow-up; until then, scope the claim to the plugin.
   const embedding = await embedText(text);
   return {
     text,

@@ -1,6 +1,6 @@
 {
   "name": "cortex-memory",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Every Claude Code session becomes a sovereign memory node: auto-captured before compaction and saved to Arkiv, recalled at session start, owned by your wallet. Reuses the Cortex decay-aware memory engine.",
   "author": {
     "name": "Cortex"

@@ -22,9 +22,10 @@
  */
 
 import { readdirSync, existsSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { resolveProject } from "../src/lib/project-identity.ts";
 
 interface HookEvent {
   session_id?: string;
@@ -52,43 +53,9 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-// --- project identity (mirrors cortex-hook-capture.ts) ---------------------
-
-function resolveProject(cwd: string): string {
-  try {
-    const url = execFileSync("git", ["remote", "get-url", "origin"], {
-      cwd,
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2_000,
-    })
-      .toString()
-      .trim();
-    const norm = normalizeRemote(url);
-    if (norm) return norm;
-  } catch {
-    /* fall through */
-  }
-  try {
-    return basename(cwd) || "unknown-project";
-  } catch {
-    return "unknown-project";
-  }
-}
-
-function normalizeRemote(url: string): string | null {
-  if (!url) return null;
-  let s = url.trim().replace(/\.git$/, "");
-  const scp = s.match(/^[^@]+@([^:]+):(.+)$/);
-  if (scp) return `${scp[1]}/${scp[2]}`;
-  try {
-    const u = new URL(s);
-    const path = u.pathname.replace(/^\/+/, "");
-    if (u.hostname && path) return `${u.hostname}/${path}`;
-  } catch {
-    /* not a URL */
-  }
-  return s || null;
-}
+// Project identity is resolved by the shared src/lib/project-identity.ts module
+// so capture (which stamps the `workspace` provenance) and recall (which queries
+// by it) can never drift — see that file's header.
 
 // --- query derivation ------------------------------------------------------
 
@@ -210,7 +177,18 @@ async function main(): Promise<void> {
   try {
     const { recall } = await import("../src/darwinian/recall.ts");
     const query = deriveQuery(cwd, project);
-    const hits = await withTimeout(recall({ query, k: RECALL_K, project }), HOOK_BUDGET_MS);
+    // Pass sessionId so resume/clear of an existing session re-surfaces that
+    // session's own memories first (the 1.3x same-session continuity boost).
+    // On a brand-new session id it's simply a no-op boost — harmless.
+    const hits = await withTimeout(
+      recall({
+        query,
+        k: RECALL_K,
+        project,
+        ...(event.session_id ? { sessionId: event.session_id } : {}),
+      }),
+      HOOK_BUDGET_MS,
+    );
 
     if (!hits || hits.length === 0) {
       if (queued > 0) {

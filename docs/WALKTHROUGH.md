@@ -11,9 +11,10 @@ bun run seed             # seed 8 memories the agent will cite
 bun run dashboard        # then open http://localhost:3000/console
 ```
 
-**On camera — open `/console` and say nothing for 20 seconds.** An autonomous
-agent runs inside the server and cites a memory every ~20s. Within one tick the
-judge watches, live and unprompted:
+**On camera — open `/console` (local `bun run dashboard`) and say nothing for 20
+seconds.** An autonomous agent runs inside your **local** dev server and cites a
+memory every ~20s. (This loop runs locally only — it does **not** run on the public
+Vercel deploy.) Within one tick the judge watches, live and unprompted:
 
 1. The **hero widget** lights its phase track: Recalling → Deciding → Reinforcing → Anchored, with the current query ("How does MMR proof verification work in Cortex?").
 2. The **Arkiv RPC ticker** streams real calls — `mutateEntities 178B 6.8s`, `extendEntity 32B`, `getEntity` — each with a clickable Braga tx link. *This is the chain working in real time, not a mirror read.*
@@ -75,7 +76,7 @@ Show: the two `act tx` hashes appearing with explorer links.
 
 `[01:18]` — **Cut back to the dashboard.**
 Show: the two cited memories' decay bars have grown — visibly longer than they were 60 seconds ago, while the uncited third memory's bar continued to drain.
-Voice: "That's accumulative extend in action. The new expiration is `remaining + 24 hours`, not a reset to 24 hours. Naïve extend reverts the moment remaining exceeds the reinforcement window — Arkiv's extend is REPLACE-not-ADD. The fix is in `src/darwinian/extend.ts`."
+Voice: "That's accumulative extend in action. Each citation adds exactly 24 hours on top of whatever was remaining — Arkiv's deployed extend is additive, `expiresAt += expiresIn`, which we verified on-chain instead of trusting the Solidity source, which says REPLACE. The logic is in `src/darwinian/extend.ts`."
 
 `[01:35]` — **Open the Synaptic Market panel.**
 Show: a `listing` row with `ruleTag: anti-rug`, `confidence: 92`, price displayed in GLM, encrypted payload size.

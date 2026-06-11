@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getChainId, getWalletClient } from "@wagmi/core";
+import { getChainId, getWalletClient, waitForTransactionReceipt } from "@wagmi/core";
 import { useSwitchChain } from "wagmi";
+import { formatEther, formatGwei } from "viem";
 import type { Hex } from "@/ui/types";
 import type { PreparedUploadResponse } from "@/lib/web/types/upload-quote";
 import { buildSealedDocumentCreate } from "@/src/lib/browser-store-document";
@@ -21,6 +22,24 @@ const EXPLORER = "https://explorer.braga.hoodi.arkiv.network";
 
 export type UploadStep = "idle" | "switch" | "adopt" | "prepare" | "sign" | "done" | "error";
 
+/**
+ * MEASURED gas of a confirmed write — read from the on-chain receipt
+ * (`gasUsed × effectiveGasPrice`), NOT the pre-sign estimate. This is the proof
+ * that the user's own wallet burned real Braga GLM per write: the number on the
+ * receipt is the same one the block explorer shows, derived independently of any
+ * Cortex code path.
+ */
+export interface GasReceipt {
+  /** Gas units actually consumed. */
+  gasUsed: string;
+  /** Effective gas price in gwei. */
+  effectiveGasPriceGwei: string;
+  /** Fee in wei (gasUsed × effectiveGasPrice), as a decimal string. */
+  feeWei: string;
+  /** Fee formatted in whole GLM (ether units) for display. */
+  feeGlm: string;
+}
+
 export function useBrowserUpload() {
   const { switchChainAsync } = useSwitchChain();
   const identity = useCortexIdentity();
@@ -28,6 +47,7 @@ export function useBrowserUpload() {
   const [error, setError] = useState<string | null>(null);
   const [lastTx, setLastTx] = useState<string | null>(null);
   const [lastEntityKey, setLastEntityKey] = useState<Hex | null>(null);
+  const [lastGas, setLastGas] = useState<GasReceipt | null>(null);
 
   const upload = useCallback(
     async (
@@ -39,6 +59,7 @@ export function useBrowserUpload() {
       setError(null);
       setLastTx(null);
       setLastEntityKey(null);
+      setLastGas(null);
 
       try {
         setStep("switch");
@@ -101,6 +122,27 @@ export function useBrowserUpload() {
 
         const entityKey = result.createdEntities[0] as Hex | undefined;
 
+        // Read the on-chain receipt for the MEASURED fee (gasUsed ×
+        // effectiveGasPrice). Best-effort: the tx already landed, so a slow/flaky
+        // receipt read must not fail the upload — it only enriches the proof.
+        let gas: GasReceipt | null = null;
+        try {
+          const receipt = await waitForTransactionReceipt(wagmiConfig, {
+            hash: result.txHash as Hex,
+            chainId: bragaChain.id,
+          });
+          const feeWei = receipt.gasUsed * receipt.effectiveGasPrice;
+          gas = {
+            gasUsed: receipt.gasUsed.toString(),
+            effectiveGasPriceGwei: formatGwei(receipt.effectiveGasPrice),
+            feeWei: feeWei.toString(),
+            feeGlm: formatEther(feeWei),
+          };
+          setLastGas(gas);
+        } catch {
+          /* receipt read is best-effort; the write itself is already confirmed */
+        }
+
         if (entityKey) {
           try {
             await fetch("/api/memories/register", {
@@ -121,6 +163,7 @@ export function useBrowserUpload() {
           txHash: result.txHash as Hex,
           entityKey,
           explorer: `${EXPLORER}/tx/${result.txHash}`,
+          gas,
         };
       } catch (e) {
         setStep("error");
@@ -133,5 +176,5 @@ export function useBrowserUpload() {
     [identity, switchChainAsync],
   );
 
-  return { upload, step, error, lastTx, lastEntityKey, identity };
+  return { upload, step, error, lastTx, lastEntityKey, lastGas, identity };
 }

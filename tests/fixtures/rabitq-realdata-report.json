@@ -1,24 +1,24 @@
 {
-  "generatedAt": "2026-05-27T21:20:08.292Z",
+  "generatedAt": "2026-06-10T18:13:51.568Z",
   "provider": "cohere",
   "corpusSize": 12,
   "embedDim": 1536,
   "packBytes": 198,
   "selfRecallScores": [
-    1.0004,
-    1.0004,
-    1.0002,
+    1.0007,
+    0.9998,
     1.0001,
-    0.9999,
     1,
+    1.0003,
+    1.0004,
     0.9997,
     0.9997,
     0.9998,
     1.0004,
     0.9997,
-    1
+    1.0004
   ],
-  "intraClusterMean": 0.2945,
+  "intraClusterMean": 0.2941,
   "interClusterMean": 0.1025,
   "cluster_gap_pass_count": 9,
   "recall3OnQuery": {
@@ -30,22 +30,22 @@
     ]
   },
   "estimatorError": {
-    "rawCosine": 0.6298,
-    "rabitqEstimate": 0.6339,
-    "abs": 0.0041
+    "rawCosine": 0.6296,
+    "rabitqEstimate": 0.634,
+    "abs": 0.0044
   },
   "encodeTimesMs": [
+    0.316,
+    0.193,
+    0.371,
+    0.301,
+    0.291,
+    0.112,
+    0.299,
+    0.197,
+    0.195,
     0.157,
-    0.15,
-    0.083,
-    0.187,
-    0.216,
-    0.075,
-    0.216,
-    0.239,
-    0.284,
-    0.069,
-    0.151,
-    0.154
+    0.103,
+    0.149
   ]
 }

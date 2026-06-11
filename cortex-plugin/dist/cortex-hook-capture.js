@@ -5355,18 +5355,30 @@ var init_embeddings = __esm(() => {
 });
 
 // scripts/cortex-hook-capture.ts
-import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2, readFileSync as readFileSync2, existsSync as existsSync2 } from "fs";
-import { join as join2, basename } from "path";
+import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2, renameSync as renameSync2, readFileSync as readFileSync2, existsSync as existsSync2 } from "fs";
+import { join as join2 } from "path";
 import { homedir as homedir2 } from "os";
-import { execFileSync, spawn } from "child_process";
-var MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
-var MAX_SUMMARY_CHARS = 6000;
-async function readStdin() {
-  const chunks = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks).toString("utf-8");
+import { spawn } from "child_process";
+import { createHash } from "crypto";
+
+// src/lib/project-identity.ts
+import { execFileSync } from "child_process";
+import { basename } from "path";
+function normalizeRemote(url) {
+  if (!url)
+    return null;
+  let s = url.trim().replace(/\.git\/?$/, "");
+  const scp = !s.includes("://") ? s.match(/^[^@]+@([^:]+):(.+)$/) : null;
+  if (scp)
+    return `${scp[1]}/${scp[2]}`.replace(/\/+$/, "");
+  try {
+    const u = new URL(s);
+    const path = u.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+    if (u.hostname && path)
+      return `${u.hostname}/${path}`;
+  } catch {}
+  const trimmed = s.replace(/\/+$/, "");
+  return trimmed || null;
 }
 function resolveProject(cwd) {
   try {
@@ -5385,21 +5397,16 @@ function resolveProject(cwd) {
     return "unknown-project";
   }
 }
-function normalizeRemote(url) {
-  if (!url)
-    return null;
-  let s = url.trim();
-  s = s.replace(/\.git$/, "");
-  const scp = s.match(/^[^@]+@([^:]+):(.+)$/);
-  if (scp)
-    return `${scp[1]}/${scp[2]}`;
-  try {
-    const u = new URL(s);
-    const path = u.pathname.replace(/^\/+/, "");
-    if (u.hostname && path)
-      return `${u.hostname}/${path}`;
-  } catch {}
-  return s || null;
+
+// scripts/cortex-hook-capture.ts
+var MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
+var MAX_SUMMARY_CHARS = 6000;
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
 }
 function parseTranscript(raw) {
   const out = [];
@@ -5488,13 +5495,13 @@ function buildSummary(msgs, project, sessionId) {
     summary = summary.slice(0, MAX_SUMMARY_CHARS) + `
 \u2026(truncated)`;
   }
-  return summary;
+  return { text: summary, meaningful: goals.length > 0 || decisions.length > 0 };
 }
 function firstMeaningfulLine(text) {
   for (const raw of text.split(`
 `)) {
     const s = raw.trim().replace(/\s+/g, " ");
-    if (!s || s.startsWith("/") || s.startsWith("```") || s.startsWith("<"))
+    if (!s || s.startsWith("/") || s.startsWith("```") || s.startsWith("</") || s.startsWith("<!"))
       continue;
     if (s.length < 4)
       continue;
@@ -5524,8 +5531,11 @@ function dataDir() {
 }
 function queuePending(p) {
   const dir = dataDir();
-  const file = join2(dir, `${safeName(p.project)}__${safeName(p.sessionId)}.json`);
-  writeFileSync2(file, JSON.stringify(p, null, 2), "utf-8");
+  const tag = createHash("sha1").update(`${p.project}\x00${p.sessionId}`).digest("hex").slice(0, 8);
+  const file = join2(dir, `${safeName(p.project)}__${safeName(p.sessionId)}__${tag}.json`);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync2(tmp, JSON.stringify(p, null, 2), "utf-8");
+  renameSync2(tmp, file);
   return file;
 }
 function safeName(s) {
@@ -5553,6 +5563,7 @@ async function main() {
   const project = resolveProject(cwd);
   const title = `Session summary \u2014 ${eventName} \u2014 ${sessionId}`;
   let summary = "";
+  let meaningful = false;
   try {
     const path = event.transcript_path;
     if (path && existsSync2(path)) {
@@ -5560,15 +5571,17 @@ async function main() {
       if (raw.length > MAX_TRANSCRIPT_BYTES)
         raw = raw.slice(-MAX_TRANSCRIPT_BYTES);
       const msgs = parseTranscript(raw);
-      summary = buildSummary(msgs, project, sessionId);
+      const built = buildSummary(msgs, project, sessionId);
+      summary = built.text;
+      meaningful = built.meaningful;
     } else {
       log(`transcript_path missing or not found: ${path}`);
     }
   } catch (err) {
     log("transcript parse failed:", err);
   }
-  if (!summary.trim()) {
-    log(`no summary produced for project=${project} session=${sessionId}; nothing to capture.`);
+  if (!summary.trim() || !meaningful) {
+    log(`no meaningful summary for project=${project} session=${sessionId}; nothing to capture.`);
     return;
   }
   const file = queuePending({
