@@ -101,17 +101,30 @@ server.registerTool(
     title: "Cortex act",
     description:
       "Record a decision and cite the memories that informed it. Each valid " +
-      "citation fires an accumulative lease extension (+24h per citation) " +
-      "so useful memories survive and the rest decay for free. Citations are " +
-      "validated against the most recent cortex_recall in this session.",
+      "citation fires an accumulative lease extension (+24h baseline, scaled up " +
+      "by the memory's proven utility) so useful memories survive and the rest " +
+      "decay for free. Pass `outcome` when you know whether the cited memories " +
+      "actually helped — that makes reinforcement utility-gated, not just " +
+      "citation-gated. Citations are validated against the most recent " +
+      "cortex_recall in this session.",
     inputSchema: {
       action: z.string().min(1).describe("The decision/action being taken."),
       citations: z
         .array(z.string())
         .describe("Entity ids from the latest cortex_recall that you used."),
+      outcome: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe(
+          "How useful the cited memories were for this action, in [0,1]: " +
+            "1 = led to a correct/successful result, 0 = wrong or unhelpful, " +
+            "omit if unknown (defaults to neutral). Feeds the SEDM utility weight.",
+        ),
     },
   },
-  async ({ action, citations }) => {
+  async ({ action, citations, outcome }) => {
     // Owner EOA resolves env → ~/.cortex/config.json (written by `cortex auth`).
     // Previously env-only, which broke cortex_act for every fresh installer.
     const userPrimaryEOA = (resolveCredentials().ownerEOA ?? undefined) as Hex | undefined;
@@ -134,6 +147,7 @@ server.registerTool(
       action,
       citations: citations as Hex[],
       userPrimaryEOA,
+      ...(outcome !== undefined ? { outcome } : {}),
     });
 
     if (res.status === "noop") {
@@ -149,13 +163,23 @@ server.registerTool(
       };
     }
 
+    // Self-narrating decay receipt, per cited memory. Honest tense: the delta is
+    // REAL (additive precompile), the absolute lease is an estimate ("est."), and
+    // there is NO tx hash yet (the extend is queued; outboxId is the real handle).
+    const fmtLease = (s: number) =>
+      s >= 86_400 ? `~${(s / 86_400).toFixed(1)}d` : `~${Math.max(1, Math.round(s / 3_600))}h`;
     const lines = [
       `Recorded decision: "${action}"`,
-      `Reinforced ${res.extendedKeys.length} memory(ies) — leases extended (accumulative).`,
+      ...res.receipts.map(
+        (r) =>
+          `${r.id} → +${(r.deltaSecondsThisCite / 3_600).toFixed(1)}h queued this cite; ` +
+          `projected lease ${fmtLease(r.projectedLeaseSeconds)}${r.estimated ? " (est.)" : ""}; ` +
+          `tier ${r.tier} (w=${r.weightAfter.toFixed(2)}, cites=${r.citationCountAfter}, outcome=${r.outcomeApplied})`,
+      ),
       res.promotedKeys.length > 0
         ? `Promoted ${res.promotedKeys.length} to a higher tier.`
         : null,
-      `On-chain citation bundle queued (outbox #${res.outboxId}); anchors when a Cortex worker drains it.`,
+      `On-chain citation bundle queued (outbox #${res.outboxId}); anchors on Braga when a Cortex worker drains it.`,
       res.citationPayloadHashHex
         ? `MMR leaf (citation hash): ${res.citationPayloadHashHex}`
         : null,

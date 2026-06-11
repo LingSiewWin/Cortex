@@ -3,8 +3,8 @@
 ![Cortex landing page — Darwinian memory for AI agents on Arkiv Braga](./assets/landing-page.png)
 
 > **Darwinian memory for AI agents** — observations that earn longer expiration when
-> cited; useless ones decay for free on Arkiv. Encrypted at rest with a key derived
-> from your wallet. _(AI + Privacy · Arkiv × ETHNS Builder Challenge)_
+> cited; useless ones decay for free on Arkiv. Encrypted at rest with a wallet-derived
+> key (client-side in the plugin). _(AI + Privacy · Arkiv × ETHNS Builder Challenge)_
 
 | | Link |
 |---|------|
@@ -24,7 +24,7 @@ One repo — not a monorepo. `app/` + `src/` + `cortex-plugin/` ship together.
 |--------|----------|
 | **Write** | RaBitQ-compress embeddings (1536-d → ~198 B), seal payload with wallet-derived AES-256-GCM, `createEntity` on Braga with **1 h** starting expiration |
 | **Recall** | Hybrid search: Arkiv attributes + local mirror + RaBitQ distance — no vector DB |
-| **Reinforce** | Every `act(..., citations=[...])` fires **accumulative** `extend` (remaining lease + 24 h), so useful memories grow; stale ones evict via L1Block |
+| **Reinforce** | Every `act(..., citations=[...])` fires **accumulative** `extend` (additive on Braga: +24 h baseline, scaled up to 2.5× by the memory's proven utility), so useful memories grow; stale ones evict via L1Block |
 | **Prove** | Merkle Mountain Range over decisions; roots **anchored on Arkiv** |
 
 Agent surface: **`recall(query, k)`** and **`act(action, citations[])`** only.
@@ -171,9 +171,10 @@ sequenceDiagram
   Engine->>Chain: query attributes
   Engine-->>Agent: memory IDs
   Agent->>Engine: act with citations
-  Engine->>Chain: extendEntity remaining plus 24h
+  Engine->>Chain: extendEntity additive plus reinforcement
   Engine->>Chain: anchor MMR root
   Engine-->>SSE: memory.cited and arkiv.rpc
+  Note over Agent,Chain: act() is optimistic — enqueues; the worker anchors the extend async (no synchronous extend tx)
 
   Note over Chain: Uncited memories evict via L1Block
 ```
@@ -182,7 +183,7 @@ sequenceDiagram
 
 **Tiers:** working (1h) → episodic (≥2 cites, +7d) → semantic (≥5 cites · 3 sessions, 1y rule).
 
-**Extend math:** `newBtl = remaining + reinforcement` (strict increase — naïve `+24h` reverts when remaining > 24 h).
+**Extend math:** deployed Braga `extend` is **additive** — `expiresAt += expiresIn` (verified on-chain 2026-05-25). Each citation adds exactly its reinforcement (+24 h working, +7 d episodic), so useful memories accumulate lease while uncited ones decay. (The `remaining + reinforcement` REPLACE formula belongs to the future `EntityRegistry.sol`, not the live precompile — see `src/darwinian/extend.ts`.)
 
 ---
 

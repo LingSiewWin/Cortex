@@ -18,7 +18,7 @@
 
 5. **Effective max `btl` ≈ 272 years** (u32 cap on `btl` and `expiresAt`, 2-second blocks). No `MAX_BTL` guard anywhere — only Solidity 0.8 checked-arithmetic overflow on `currentBlock + btl`. No SDK validates upper bound.
 
-6. **Extend is REPLACE not ADD, owner-only.** `newExpiresAt = currentBlock + btl`, must be strictly greater than `existingExpiresAt`. Cannot stack leases. Cannot delegate.
+6. **Extend is REPLACE not ADD, owner-only** *in the Solidity `EntityRegistry` source*. ⚠️ **SUPERSEDED for the live chain:** the deployed Braga precompile was verified ADDITIVE (`expiresAt += expiresIn`) on-chain 2026-05-25 — see `docs/arkiv-network/2026-05-25-extend-semantics-VERIFIED.md`. The REPLACE semantics below describe the unshipped contract, which still cannot stack leases and cannot delegate.
 
 7. **Agent memory is officially endorsed** as a flagship Arkiv use case (ETHNS Theme 1: "Agents Whose Memory You Actually Own"). Team framing is "memory you own, with expiration" — explicitly NOT permanent. They concede Arweave wins for permanence.
 

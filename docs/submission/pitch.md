@@ -4,9 +4,12 @@
 > No "trustless forever" fluff.
 >
 > **Ground truth:** [README.md](../../README.md), [Arkiv.md](../Arkiv.md), [COMPETITORS.md](../COMPETITORS.md)  
-> **Live:** [cortex-arkiv.vercel.app/console](https://cortex-arkiv.vercel.app/console)
+> **Live site:** [cortex-arkiv.vercel.app](https://cortex-arkiv.vercel.app) — landing +
+> install + video. The autonomous loop does **not** run on the public deploy; record the
+> `/console` demo locally via `bun run dev`.
 >
-> **Record on:** `/console` (**Judge** mode). **`?dev=1`** = engineer cockpit + memory inspector only.
+> **Record on:** local `/console` (**Judge** mode) via `bun run dev`. **`?dev=1`** =
+> engineer cockpit + memory inspector only.
 
 ### Jump to
 
@@ -78,7 +81,7 @@ If you only see a hash, you stopped at the receipt — **open inspector or recal
 |---|------------|
 | **Product** | Obsidian vault sync + **Claude Code plugin** + `recall` / `act` / `cortex_store_document` |
 | **Console (Judge)** | **Proof booth** — graph, wallet upload, automated cite judge for judges |
-| **Autonomous agent strip** | **Server judge robot** (canned questions every ~20s) — **not** Claude thinking in your IDE |
+| **Autonomous agent strip** | **Local demo loop** (canned questions on a timer, run via `bun run dev`) — **not** Claude thinking in your IDE, and **not** running on the public Vercel deploy |
 
 ---
 
@@ -532,7 +535,7 @@ Unused memories → expiry → dropped on Arkiv (no forever storage)
 
 **Honest Braga caveats (integrity):**
 
-- `extend` is **REPLACE** — we use `remaining + reinforcement` so it never reverts (`src/darwinian/extend.ts`).
+- `extend` on deployed Braga is **ADDITIVE** — `expiresAt += expiresIn`, verified on-chain 2026-05-25. Each citation sends exactly the reinforcement (+24h); `remaining + reinforcement` would double-count and balloon leases (`src/darwinian/extend.ts`). REPLACE semantics belong to the future Solidity `EntityRegistry`, not the live precompile.
 - Historical `atBlock` queries broken — cold tier = mirror replay, not time travel (`docs/Arkiv.md`).
 - Vercel may not run background agent — full loop on local `bun run dev`.
 

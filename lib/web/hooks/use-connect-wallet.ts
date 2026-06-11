@@ -2,8 +2,6 @@
 
 import { useCallback, useState } from "react";
 import { useConnect, useConnectors } from "wagmi";
-import { useAppKit } from "@reown/appkit/react";
-import { isWalletConnectConfigured } from "../config";
 
 function pickInjectedConnector(connectors: ReturnType<typeof useConnectors>) {
   return (
@@ -34,11 +32,15 @@ async function hasInjectedProvider(
 
 const NO_WALLET_MESSAGE =
   "No browser wallet detected. On desktop, install MetaMask or Rabby and refresh. " +
-  "On mobile, open this page inside your wallet app's in-app browser. " +
-  "(A free WalletConnect projectId enables QR + mobile connect for everyone — see the README.)";
+  "On mobile, open this page inside your wallet app's in-app browser.";
 
+/**
+ * Injected-only connect. The console signs + pays Braga gas with the user's own
+ * browser-extension wallet (the on-camera proof); there is no WalletConnect/Reown
+ * cloud path. `connectWallet` and `openWalletModal` both resolve to the same
+ * injected connect so existing callers (ConnectGate, WalletHeader) are unchanged.
+ */
 export function useConnectWallet() {
-  const { open } = useAppKit();
   const { connectAsync, connectors, isPending, error } = useConnect();
   // Our own channel for pre-flight guidance: a thrown error from the click handler
   // is void-discarded and never reaches the UI, and wagmi's `error` only covers
@@ -55,22 +57,9 @@ export function useConnectWallet() {
     await connectAsync({ connector: injected });
   }, [connectors, connectAsync]);
 
-  const connectWallet = useCallback(async () => {
-    if (!isWalletConnectConfigured()) {
-      await connectBrowserWallet();
-      return;
-    }
-    open({ view: "Connect" });
-  }, [connectBrowserWallet, open]);
-
-  const openWalletModal = useCallback(() => {
-    if (!isWalletConnectConfigured()) return connectBrowserWallet();
-    open();
-  }, [connectBrowserWallet, open]);
-
   return {
-    connectWallet,
-    openWalletModal,
+    connectWallet: connectBrowserWallet,
+    openWalletModal: connectBrowserWallet,
     isPending,
     error: localError ?? error?.message ?? null,
   };

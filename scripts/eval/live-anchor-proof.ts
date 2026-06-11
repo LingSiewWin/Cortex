@@ -76,7 +76,7 @@ async function waitForEntity(key: Hex, timeoutMs = 30_000): Promise<boolean> {
 }
 
 const MEMORIES = [
-  "Accumulative extend: a cited memory's new lease is remaining + 24h reinforcement, so useful memories grow.",
+  "Accumulative extend: each citation adds +24h to a memory's lease (additive on deployed Braga), so useful memories grow while uncited ones decay.",
   "RaBitQ compresses a 1536-d float32 embedding to 198 bytes — about 31x — with an unbiased inner-product estimator.",
 ];
 

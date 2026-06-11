@@ -276,6 +276,11 @@ function ConsoleApp() {
   }, [loopConfigured, data.memories]);
 
   if (noLiveBackend) {
+    // Public serverless deploy: no loop, empty mirror. Still show the wallet
+    // upload — the browser-signed write path (connect → sign → pay GLM gas →
+    // measured receipt) needs no backend state, only the embedding key for
+    // /api/store-file/prepare. Without this, the deployed console had NO
+    // connect-wallet button at all and the on-camera gas proof was unreachable.
     return (
       <div className="cx cx-console">
         <div className="app app-judge">
@@ -290,8 +295,17 @@ function ConsoleApp() {
             </div>
             <div className="topbar-right">
               <span className="tag muted mono">local-first</span>
+              <WalletHeader />
             </div>
           </header>
+          <ConnectGate
+            title="Connect wallet to store on Braga"
+            lead="Your wallet signs the Arkiv transaction and pays GLM gas — the measured fee is read back from the on-chain receipt. No server key involved."
+          >
+            <section className="console-controls" aria-label="Store on Arkiv">
+              <WalletUpload />
+            </section>
+          </ConnectGate>
           <LocalFirstPanel />
         </div>
         <CortexFooter />
@@ -591,6 +605,18 @@ function ConsoleApp() {
             <div className="row">
               <span className="k">key</span>
               <span className="mono">{inspected.summary.entityKey}</span>
+            </div>
+            <div className="row">
+              <span className="k">decay</span>
+              <a
+                className="mono"
+                href={`/decay/${inspected.summary.entityKey}`}
+                target="_blank"
+                rel="noreferrer"
+                title="See this memory's lease climb on citation and decay on neglect"
+              >
+                view decay receipt →
+              </a>
             </div>
             <div className="row">
               <span className="k">owner</span>

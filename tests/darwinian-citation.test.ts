@@ -22,8 +22,8 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { Hex } from "@arkiv-network/sdk";
 import { act, getCitationStats } from "../src/darwinian/citation.ts";
-import { listPendingOutbox, countOutbox, type OutboxBundle } from "../src/mirror/db.ts";
-import { ENTITY_TYPE, REINFORCEMENT } from "../src/constants.ts";
+import { listPendingOutbox, countOutbox, setDaemonState, type OutboxBundle } from "../src/mirror/db.ts";
+import { ENTITY_TYPE, REINFORCEMENT, UTILITY } from "../src/constants.ts";
 
 const FAKE_USER = "0xCAfeBABe00000000000000000000000000000000" as Hex;
 const KEY_A = "0xaaaa111111111111111111111111111111111111111111111111111111111111" as Hex;
@@ -311,6 +311,142 @@ describe("act — tier promotion", () => {
 
     expect(latestBundle(db)?.reinforceItems[0]?.reinforcementSeconds).toBe(
       REINFORCEMENT.episodicReinforcementSeconds,
+    );
+  });
+});
+
+describe("act — decay receipts", () => {
+  test("fresh memory (no chain baseline) → real delta, estimated=true, cortex:// id", async () => {
+    const db = await freshDb();
+    const deps = makeDeps(db, [KEY_A]);
+    deps.entityTypes.set(KEY_A, "observation");
+
+    const r = await act({
+      action: "decide",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      sessionId: "s1",
+      _deps: depBundle(deps),
+    });
+
+    expect(r.receipts).toHaveLength(1);
+    const rec = r.receipts[0]!;
+    expect(rec.id).toBe(`cortex://${KEY_A}`);
+    expect(rec.key).toBe(KEY_A);
+    // additive precompile: a first/unproven cite adds exactly the base lease.
+    expect(rec.deltaSecondsThisCite).toBe(REINFORCEMENT.workingReinforcementSeconds);
+    // no entities row → no chain-confirmed baseline → estimated.
+    expect(rec.estimated).toBe(true);
+    expect(rec.tier).toBe("observation");
+    expect(rec.citationCountAfter).toBe(1);
+    expect(rec.outcomeApplied).toBe(UTILITY.defaultOutcome);
+    expect(rec.projectedLeaseSeconds).toBeGreaterThan(rec.deltaSecondsThisCite);
+  });
+
+  test("with a chain baseline AND a real cursor → estimated=false, lease folds in remaining", async () => {
+    const db = await freshDb();
+    db.prepare(
+      "INSERT INTO entities (entity_key, owner, expires_at_block, first_seen_block, last_event_block, last_event_type) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(KEY_A, FAKE_USER, 100, 0, 0, "created");
+    // A real chain cursor is required for the baseline to be usable.
+    setDaemonState(db, "last_processed_block", "50");
+    const deps = makeDeps(db, [KEY_A]);
+    deps.entityTypes.set(KEY_A, "observation");
+
+    const r = await act({
+      action: "decide",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      _deps: depBundle(deps),
+    });
+
+    const rec = r.receipts[0]!;
+    expect(rec.estimated).toBe(false);
+    // remaining = (100 - 50) * 2s = 100; + delta (base, first cite); pending = 0.
+    expect(rec.projectedLeaseSeconds).toBe(100 + REINFORCEMENT.workingReinforcementSeconds);
+  });
+
+  test("baseline row but stale/zero chain cursor → estimated=true, no absurd lease", async () => {
+    const db = await freshDb();
+    // Real Braga expiry block (millions) but NO daemon_state row → headBlock = 0.
+    // The plugin-first product runs no sync daemon, so this is the common case;
+    // it must NOT render a multi-year lease as confirmed (the bug the audit caught).
+    db.prepare(
+      "INSERT INTO entities (entity_key, owner, expires_at_block, first_seen_block, last_event_block, last_event_type) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(KEY_A, FAKE_USER, 5_000_000, 0, 0, "created");
+    const deps = makeDeps(db, [KEY_A]);
+    deps.entityTypes.set(KEY_A, "observation");
+
+    const r = await act({
+      action: "decide",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      _deps: depBundle(deps),
+    });
+
+    const rec = r.receipts[0]!;
+    expect(rec.estimated).toBe(true);
+    expect(rec.projectedLeaseSeconds).toBeLessThan(REINFORCEMENT.semanticInitialSeconds);
+  });
+
+  test("outcome flows through to the evolved weight (utility-gated, not frozen 0.5)", async () => {
+    const lowDb = await freshDb();
+    const lowDeps = makeDeps(lowDb, [KEY_A]);
+    lowDeps.entityTypes.set(KEY_A, "observation");
+    const low = await act({
+      action: "a",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      outcome: 0,
+      _deps: depBundle(lowDeps),
+    });
+
+    const hiDb = await freshDb();
+    const hiDeps = makeDeps(hiDb, [KEY_A]);
+    hiDeps.entityTypes.set(KEY_A, "observation");
+    const hi = await act({
+      action: "a",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      outcome: 1,
+      _deps: depBundle(hiDeps),
+    });
+
+    expect(low.receipts[0]!.outcomeApplied).toBe(0);
+    expect(hi.receipts[0]!.outcomeApplied).toBe(1);
+    // A successful outcome evolves a higher utility weight than a failed one.
+    expect(hi.receipts[0]!.weightAfter).toBeGreaterThan(low.receipts[0]!.weightAfter);
+  });
+
+  test("proven memory earns a longer lease on its next cite (one-cite lag, by design)", async () => {
+    const db = await freshDb();
+    const deps = makeDeps(db, [KEY_A]);
+    deps.entityTypes.set(KEY_A, "observation");
+    const bundle = depBundle(deps);
+
+    const r1 = await act({
+      action: "first",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      outcome: 1,
+      sessionId: "s1",
+      _deps: bundle,
+    });
+    const r2 = await act({
+      action: "second",
+      citations: [KEY_A],
+      userPrimaryEOA: FAKE_USER,
+      outcome: 1,
+      sessionId: "s1",
+      _deps: bundle,
+    });
+
+    // First cite: lease scaled by prior weight = wInit → exactly base.
+    expect(r1.receipts[0]!.deltaSecondsThisCite).toBe(REINFORCEMENT.workingReinforcementSeconds);
+    // Second cite: prior weight is now the weight earned on cite 1 (> wInit) →
+    // the lease this cite is strictly larger. This IS the Darwinian effect.
+    expect(r2.receipts[0]!.deltaSecondsThisCite).toBeGreaterThan(
+      REINFORCEMENT.workingReinforcementSeconds,
     );
   });
 });

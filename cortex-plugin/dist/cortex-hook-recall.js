@@ -25302,22 +25302,28 @@ var init_recall = __esm(() => {
 
 // scripts/cortex-hook-recall.ts
 import { readdirSync, existsSync as existsSync2, statSync } from "fs";
-import { join as join2, basename } from "path";
+import { join as join2 } from "path";
 import { homedir as homedir2 } from "os";
-import { execFileSync, spawn } from "child_process";
-var HOOK_BUDGET_MS = 8000;
-var RECALL_K = 5;
-async function readStdin() {
-  const chunks = [];
-  for await (const chunk of process.stdin)
-    chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf-8");
-}
-function withTimeout2(p, ms) {
-  return Promise.race([
-    p,
-    new Promise((_, rej) => setTimeout(() => rej(new Error("cortex-recall timeout")), ms))
-  ]);
+import { spawn } from "child_process";
+
+// src/lib/project-identity.ts
+import { execFileSync } from "child_process";
+import { basename } from "path";
+function normalizeRemote(url) {
+  if (!url)
+    return null;
+  let s = url.trim().replace(/\.git\/?$/, "");
+  const scp = !s.includes("://") ? s.match(/^[^@]+@([^:]+):(.+)$/) : null;
+  if (scp)
+    return `${scp[1]}/${scp[2]}`.replace(/\/+$/, "");
+  try {
+    const u = new URL(s);
+    const path = u.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+    if (u.hostname && path)
+      return `${u.hostname}/${path}`;
+  } catch {}
+  const trimmed = s.replace(/\/+$/, "");
+  return trimmed || null;
 }
 function resolveProject(cwd) {
   try {
@@ -25336,20 +25342,21 @@ function resolveProject(cwd) {
     return "unknown-project";
   }
 }
-function normalizeRemote(url) {
-  if (!url)
-    return null;
-  let s = url.trim().replace(/\.git$/, "");
-  const scp = s.match(/^[^@]+@([^:]+):(.+)$/);
-  if (scp)
-    return `${scp[1]}/${scp[2]}`;
-  try {
-    const u = new URL(s);
-    const path = u.pathname.replace(/^\/+/, "");
-    if (u.hostname && path)
-      return `${u.hostname}/${path}`;
-  } catch {}
-  return s || null;
+
+// scripts/cortex-hook-recall.ts
+var HOOK_BUDGET_MS = 8000;
+var RECALL_K = 5;
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin)
+    chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf-8");
+}
+function withTimeout2(p, ms) {
+  return Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("cortex-recall timeout")), ms))
+  ]);
 }
 function deriveQuery(cwd, project) {
   const recent = recentFiles(cwd, 8);
@@ -25451,7 +25458,12 @@ async function main() {
   try {
     const { recall: recall2 } = await Promise.resolve().then(() => (init_recall(), exports_recall));
     const query2 = deriveQuery(cwd, project);
-    const hits = await withTimeout2(recall2({ query: query2, k: RECALL_K, project }), HOOK_BUDGET_MS);
+    const hits = await withTimeout2(recall2({
+      query: query2,
+      k: RECALL_K,
+      project,
+      ...event.session_id ? { sessionId: event.session_id } : {}
+    }), HOOK_BUDGET_MS);
     if (!hits || hits.length === 0) {
       if (queued > 0) {
         process.stdout.write(`Cortex: syncing ${queued} queued memory write(s) for ${project} in the background. No prior memories surfaced yet.

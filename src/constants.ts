@@ -114,8 +114,13 @@ export type EntityType = (typeof ENTITY_TYPE)[keyof typeof ENTITY_TYPE];
 export const SEALED_CONTENT_TYPE = "application/x-cortex-sealed";
 
 /**
- * Reinforcement parameters for the Darwinian engine. Per CLAUDE.md "Accumulative extend":
- *   new_btl_seconds = remaining_seconds + REINFORCEMENT_SECONDS
+ * Reinforcement parameters for the Darwinian engine. Deployed Braga `extend` is
+ * ADDITIVE (verified on-chain 2026-05-25), so each citation adds its reinforcement
+ * to the existing lease:
+ *   new_expires_at = current_expires_at + reinforcementSeconds
+ * where reinforcementSeconds = base × utility factor (see darwinian/utility.ts
+ * leaseSeconds — a proven memory earns up to 2.5× base [1 + gamma·(wMax−wInit) =
+ * 1 + 0.5·3.0], an unproven one gets exactly base).
  *
  * 24h reinforcement is the working baseline. Tier promotions multiply this:
  *   working → episodic: +7 days

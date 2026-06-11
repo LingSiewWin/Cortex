@@ -38,10 +38,12 @@ import {
   setMemoryWeight,
   getCitationRows,
   enqueueOutbox,
+  getDaemonState,
+  listPendingOutbox,
   type OutboxBundle,
 } from "../mirror/db.ts";
 import { getLastRecallIds, getLastRecallRanks, getLastRecallK } from "./recall.ts";
-import { REINFORCEMENT, ENTITY_TYPE, UTILITY } from "../constants.ts";
+import { REINFORCEMENT, ENTITY_TYPE, UTILITY, BRAGA } from "../constants.ts";
 import { proxyUtility, evolveWeight, leaseSeconds } from "./utility.ts";
 import { publish } from "../lib/events.ts";
 
@@ -61,12 +63,44 @@ export interface CitationScore {
   citationCount: number;
 }
 
+/**
+ * Per-cited-memory "decay receipt" returned from act() so the agent can
+ * self-narrate the Darwinian effect of its decision ("reused X → +24h queued,
+ * lease ~3d, weight 1.0→1.32"). Honest by construction:
+ *   - `deltaSecondsThisCite` is REAL — deployed Braga extend is additive, so this
+ *     is the exact lease gain this citation queues.
+ *   - `projectedLeaseSeconds`/`projectedExpiresAtBlock` are an ESTIMATE (the extend
+ *     is enqueued, not yet anchored), flagged via `estimated`. NEVER render a tx
+ *     hash here — the on-chain extend doesn't exist until the worker drains the
+ *     outbox; `outboxId` on ActResult is the only real provenance handle.
+ */
+export interface CitationReceipt {
+  /** `cortex://<entityKey>` — stable, citable id for the memory. */
+  id: string;
+  key: Hex;
+  /** Lease seconds ADDED by this citation (additive precompile → real gain). */
+  deltaSecondsThisCite: number;
+  /** Estimated total lease after this cite = remaining + pending + delta. */
+  projectedLeaseSeconds: number;
+  projectedExpiresAtBlock: number;
+  tier: "observation" | "episode" | "rule";
+  /** Evolved utility weight, committed this turn (not an estimate). */
+  weightAfter: number;
+  citationCountAfter: number;
+  /** Outcome signal applied to the utility math (opts.outcome ?? default). */
+  outcomeApplied: number;
+  /** true when no chain-confirmed expiry baseline existed (projection is rougher). */
+  estimated: boolean;
+}
+
 export interface ActResult {
   action: string;
   /** Citations that survived the lastRecallIds check. */
   citations: Hex[];
   /** Memories whose lifespan WILL be extended once the worker drains the bundle. */
   extendedKeys: Hex[];
+  /** Per-cited-memory decay receipt (id, lease delta/projection, tier, weight). */
+  receipts: CitationReceipt[];
   /** Memories that crossed a tier threshold this turn (already marked locally). */
   promotedKeys: Hex[];
   /**
@@ -260,6 +294,7 @@ export async function act(opts: ActOptions): Promise<ActResult> {
       action: opts.action,
       citations: [],
       extendedKeys: [],
+      receipts: [],
       promotedKeys: [],
       status: "noop",
       outboxId: null,
@@ -277,6 +312,21 @@ export async function act(opts: ActOptions): Promise<ActResult> {
   const recallRanks = getLastRecallRanks();
   const recallK = getLastRecallK();
   const citationCount = validCitations.length;
+
+  // Decay-receipt baseline (read ONCE, BEFORE this act enqueues its own bundle).
+  // headBlock = local mirror's last processed block (no RPC). pendingByKey sums
+  // PRIOR in-flight extends not yet anchored, so the projected lease folds in
+  // additive Braga semantics without double-counting THIS cite's delta (which is
+  // added separately below). Must precede the enqueueOutbox call at the end.
+  const headBlock = Number(getDaemonState(db, "last_processed_block") ?? "0");
+  const blockTime = BRAGA.blockTimeSeconds;
+  const pendingByKey = new Map<Hex, number>();
+  for (const ob of listPendingOutbox(db, 500)) {
+    for (const it of ob.bundle.reinforceItems) {
+      const k = it.entityKey as Hex;
+      pendingByKey.set(k, (pendingByKey.get(k) ?? 0) + it.reinforcementSeconds);
+    }
+  }
 
   for (const entityKey of validCitations) {
     const cachedType = entityTypeOf(entityKey);
@@ -389,6 +439,51 @@ export async function act(opts: ActOptions): Promise<ActResult> {
     return { key, tier, weight: r?.weight ?? UTILITY.wInit, citationCount: r?.count ?? 0 };
   });
 
+  // Decay receipts: project each cited memory's resulting lease. delta is REAL
+  // (additive precompile); the absolute projection is an estimate (extend still
+  // queued). Projecting against the entity's CURRENT expiry — not headBlock —
+  // honors additive semantics: head + remaining + delta == currentExpiry + delta.
+  const reinforceByKey = new Map(reinforceItems.map((i) => [i.entityKey, i.reinforcementSeconds]));
+  const baselineStmt = db.prepare("SELECT expires_at_block FROM entities WHERE entity_key = ?");
+  // Sanity ceiling on a projected lease (project cap is 1 year). A projection
+  // above this means the chain cursor is stale, NOT that the memory truly has a
+  // multi-year lease — clamp + flag rather than print false precision.
+  const SANE_MAX_LEASE_SECONDS = REINFORCEMENT.semanticInitialSeconds;
+  const receipts: CitationReceipt[] = scores.map((s) => {
+    const delta = reinforceByKey.get(s.key) ?? 0;
+    const baseRow = baselineStmt.get(s.key) as { expires_at_block: number } | null;
+    // A usable on-chain baseline needs a known expiry AND a real chain cursor
+    // (headBlock). The plugin-first product runs no sync daemon, so headBlock is
+    // often 0/stale; without it, (expires_at_block - headBlock) is meaningless
+    // (expires_at_block is an absolute Braga block in the millions) and would
+    // render an absurd multi-year lease as if confirmed. Fall back to the working
+    // estimate, flagged, instead of printing false precision.
+    const pendingSeconds = pendingByKey.get(s.key) ?? 0;
+    let remainingSeconds: number;
+    let estimated: boolean;
+    if (baseRow && baseRow.expires_at_block > 0 && headBlock > 0) {
+      const raw = Math.max(0, baseRow.expires_at_block - headBlock) * blockTime;
+      remainingSeconds = Math.min(raw, SANE_MAX_LEASE_SECONDS);
+      estimated = raw > SANE_MAX_LEASE_SECONDS; // clamped ⇒ cursor stale ⇒ flag it
+    } else {
+      remainingSeconds = REINFORCEMENT.initialWorkingSeconds;
+      estimated = true; // no reliable chain baseline → projection is an estimate
+    }
+    const projectedLeaseSeconds = remainingSeconds + pendingSeconds + delta;
+    return {
+      id: `cortex://${s.key}`,
+      key: s.key,
+      deltaSecondsThisCite: delta,
+      projectedLeaseSeconds,
+      projectedExpiresAtBlock: headBlock + Math.round(projectedLeaseSeconds / blockTime),
+      tier: s.tier,
+      weightAfter: s.weight,
+      citationCountAfter: s.citationCount,
+      outcomeApplied: opts.outcome ?? UTILITY.defaultOutcome,
+      estimated,
+    };
+  });
+
   const built = buildCitationPayload(opts.action, validCitations, scores);
   const bundle: OutboxBundle = {
     action: opts.action,
@@ -408,6 +503,7 @@ export async function act(opts: ActOptions): Promise<ActResult> {
     action: opts.action,
     citations: validCitations,
     extendedKeys: reinforceItems.map((i) => i.entityKey),
+    receipts,
     promotedKeys,
     status: "queued",
     outboxId,

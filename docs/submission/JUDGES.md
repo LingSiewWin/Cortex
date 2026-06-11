@@ -12,7 +12,7 @@ One repo, one product. This is **not** a monorepo release train — it is a sing
 |-------|------|-------------------------|
 | 1 | `src/constants.ts` | `PROJECT_ATTRIBUTE`, tier thresholds, Braga RPC |
 | 2 | `src/lib/arkiv-client.ts` | create / query / extend against Braga |
-| 3 | `src/darwinian/extend.ts` | Accumulative extend (`remaining + reinforcement`) |
+| 3 | `src/darwinian/extend.ts` | Accumulative extend (additive precompile: `expiresAt += reinforcement`, verified on-chain) |
 | 4 | `src/darwinian/recall.ts` + `src/compression/rabitq.ts` | Hybrid recall, RaBitQ — no vector DB |
 | 5 | `src/lib/crypto.ts` + `src/lib/payload-key.ts` | Wallet-derived AES-GCM (Privacy theme) |
 | 6 | `src/mirror/db.ts` + `src/mirror/schema.sql` | SQLite mirror, replay, user-owned copy |
